@@ -37,7 +37,7 @@ public final class CsvFormatSniffer {
     }
 
     public static CSVFormat.Builder baseFormat(char delimiter) {
-        return CSVFormat.Builder.create(delimiter);
+        return CSVFormat.Builder.create(CSVFormat.DEFAULT).setDelimiter(delimiter);
     }
 
     private static int countChar(String s, char c) {
