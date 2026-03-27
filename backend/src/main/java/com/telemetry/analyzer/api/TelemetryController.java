@@ -85,10 +85,29 @@ public class TelemetryController {
             return ResponseEntity.badRequest().body(Map.of("error", "One or both sessions not found."));
         }
 
+        if (ref.laps().isEmpty() || cmp.laps().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Cannot compare: one or both sessions have no lap data.",
+                    "referenceSessionId", referenceSessionId,
+                    "compareSessionId", compareSessionId
+            ));
+        }
+
         LapData refLap = ref.laps().stream().filter(l -> l.lapId().equals(lapId)).findFirst().orElse(null);
         LapData cmpLap = cmp.laps().stream().filter(l -> l.lapId().equals(lapId)).findFirst().orElse(null);
         if (refLap == null || cmpLap == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Lap not found in one or both sessions."));
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Lap not found in one or both sessions.",
+                    "lapId", lapId,
+                    "referenceSessionId", referenceSessionId,
+                    "compareSessionId", compareSessionId
+            ));
+        }
+        if (refLap.points().isEmpty() || cmpLap.points().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Cannot compare: one or both laps have no samples.",
+                    "lapId", lapId
+            ));
         }
 
         return ResponseEntity.ok(analysisService.compareLaps(refLap, cmpLap));

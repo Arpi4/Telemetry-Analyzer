@@ -35,10 +35,19 @@ public class TelemetryImportService {
         }
 
         SessionData session = parser.parse(file.getBytes(), fileName, report);
-        if (session != null) {
-            sessionStore.save(session);
+        if (session == null) {
+            return new ImportResult(null, report);
         }
+        if (!hasTelemetryPoints(session)) {
+            report.addError("No telemetry samples were parsed; session was not stored.");
+            return new ImportResult(null, report);
+        }
+        sessionStore.save(session);
         return new ImportResult(session, report);
+    }
+
+    private static boolean hasTelemetryPoints(SessionData session) {
+        return session.laps().stream().anyMatch(lap -> lap.points() != null && !lap.points().isEmpty());
     }
 
     public record ImportResult(SessionData session, ImportReport report) {}

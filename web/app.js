@@ -27,7 +27,7 @@ async function uploadTelemetry() {
   const fileInput = document.getElementById("fileInput");
   const resultBox = document.getElementById("importResult");
   if (!fileInput.files.length) {
-    resultBox.textContent = "Valassz fajlt.";
+    resultBox.textContent = "Choose a file.";
     return;
   }
 
@@ -44,6 +44,10 @@ async function uploadTelemetry() {
   await loadSessions();
 }
 
+function sessionHasLapData(s) {
+  return Array.isArray(s.laps) && s.laps.some((lap) => lap.points && lap.points.length > 0);
+}
+
 async function loadSessions() {
   const res = await fetch(`${apiBase}/sessions`);
   const sessions = await parseJsonResponse(res);
@@ -52,16 +56,21 @@ async function loadSessions() {
     return;
   }
 
-  ["sessionSelect", "refSession", "cmpSession"].forEach((id) => {
+  const fillSelect = (id, list) => {
     const select = document.getElementById(id);
     select.innerHTML = "";
-    sessions.forEach((s) => {
+    list.forEach((s) => {
       const opt = document.createElement("option");
       opt.value = s.sessionId;
       opt.textContent = `${s.sessionId} (${s.sourceFile})`;
       select.appendChild(opt);
     });
-  });
+  };
+
+  fillSelect("sessionSelect", sessions);
+  const comparable = sessions.filter(sessionHasLapData);
+  fillSelect("refSession", comparable);
+  fillSelect("cmpSession", comparable);
 }
 
 function drawOrUpdateChart(chartRef, canvasId, labels, datasets) {
@@ -126,7 +135,11 @@ async function loadSelectedSession() {
     return;
   }
   const lap = session.laps[0];
-  if (!lap || !lap.points) {
+  if (!lap || !lap.points || lap.points.length === 0) {
+    const trackInfo = document.getElementById("trackInfo");
+    if (trackInfo) {
+      trackInfo.textContent = "No lap data in this session.";
+    }
     return;
   }
 
@@ -167,7 +180,7 @@ async function compareSessions() {
   const out = document.getElementById("compareResult");
 
   if (!ref || !cmp) {
-    out.textContent = "Valassz ket sessiont.";
+    out.textContent = "Select two sessions.";
     return;
   }
 
