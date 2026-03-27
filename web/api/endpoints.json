@@ -1,0 +1,11 @@
+{
+  "name": "telemetry-web-api-examples",
+  "description": "Optional API examples for web integration",
+  "endpoints": {
+    "import": "POST /api/telemetry/import",
+    "sessions": "GET /api/sessions",
+    "sessionById": "GET /api/sessions/{sessionId}",
+    "lapSummary": "GET /api/sessions/{sessionId}/laps/{lapId}/summary",
+    "compare": "GET /api/compare?referenceSessionId=...&compareSessionId=..."
+  }
+}

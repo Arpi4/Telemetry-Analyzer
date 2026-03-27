@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Motorsport Telemetry Analyzer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main>
+    <h1>Motorsport Telemetry Analyzer</h1>
+
+    <section>
+      <h2>Import</h2>
+      <input type="file" id="fileInput" accept=".csv,.ld,.ldx" />
+      <button id="uploadBtn">Feltöltés</button>
+      <pre id="importResult"></pre>
+    </section>
+
+    <section>
+      <h2>Sessionök</h2>
+      <button id="refreshSessions">Frissítés</button>
+      <select id="sessionSelect"></select>
+      <button id="loadSession">Betöltés</button>
+    </section>
+
+    <section>
+      <h2>Kör grafikonok</h2>
+      <canvas id="speedChart"></canvas>
+      <canvas id="throttleBrakeChart"></canvas>
+      <canvas id="gearChart"></canvas>
+    </section>
+
+    <section>
+      <h2>Track map (GPS)</h2>
+      <p id="trackInfo">No GPS data loaded.</p>
+      <canvas id="trackMapChart"></canvas>
+    </section>
+
+    <section>
+      <h2>Kör összehasonlítás</h2>
+      <label>Reference session:</label>
+      <select id="refSession"></select>
+      <label>Compare session:</label>
+      <select id="cmpSession"></select>
+      <button id="runCompare">Összehasonlítás</button>
+      <pre id="compareResult"></pre>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
