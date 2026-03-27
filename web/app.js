@@ -1,6 +1,22 @@
-const apiBase = window.location.hostname === "localhost"
-  ? "http://localhost:8080/api"
-  : "/api";
+// Local: Spring Boot. Deployed: call Render directly (CORS enabled on backend). Vercel /api rewrites are optional.
+const RENDER_API_BASE = "https://telemetry-analyzer.onrender.com/api";
+const apiBase =
+  window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://localhost:8080/api"
+    : RENDER_API_BASE;
+
+async function parseJsonResponse(res) {
+  const text = await res.text();
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    throw new Error(`HTTP ${res.status}: ${trimmed.slice(0, 200)}`);
+  }
+}
 
 let speedChart;
 let throttleBrakeChart;
@@ -19,14 +35,22 @@ async function uploadTelemetry() {
   formData.append("file", fileInput.files[0]);
 
   const res = await fetch(`${apiBase}/telemetry/import`, { method: "POST", body: formData });
-  const data = await res.json();
+  const data = await parseJsonResponse(res);
+  if (!res.ok) {
+    resultBox.textContent = JSON.stringify(data ?? { error: res.status }, null, 2);
+    return;
+  }
   resultBox.textContent = JSON.stringify(data, null, 2);
   await loadSessions();
 }
 
 async function loadSessions() {
   const res = await fetch(`${apiBase}/sessions`);
-  const sessions = await res.json();
+  const sessions = await parseJsonResponse(res);
+  if (!res.ok || !Array.isArray(sessions)) {
+    console.error("loadSessions failed", res.status, sessions);
+    return;
+  }
 
   ["sessionSelect", "refSession", "cmpSession"].forEach((id) => {
     const select = document.getElementById(id);
@@ -97,7 +121,10 @@ async function loadSelectedSession() {
   }
 
   const res = await fetch(`${apiBase}/sessions/${sessionId}`);
-  const session = await res.json();
+  const session = await parseJsonResponse(res);
+  if (!res.ok) {
+    return;
+  }
   const lap = session.laps[0];
   if (!lap || !lap.points) {
     return;
@@ -145,7 +172,11 @@ async function compareSessions() {
   }
 
   const res = await fetch(`${apiBase}/compare?referenceSessionId=${encodeURIComponent(ref)}&compareSessionId=${encodeURIComponent(cmp)}`);
-  const data = await res.json();
+  const data = await parseJsonResponse(res);
+  if (!res.ok) {
+    out.textContent = JSON.stringify(data ?? { error: res.status }, null, 2);
+    return;
+  }
   out.textContent = JSON.stringify(data, null, 2);
 }
 
