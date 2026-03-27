@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+set -e
+
+BASEDIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+MAVEN_DIR="$BASEDIR/.mvn/apache-maven-3.9.9"
+MAVEN_BIN="$MAVEN_DIR/bin/mvn"
+
+if [ ! -x "$MAVEN_BIN" ]; then
+  mkdir -p "$BASEDIR/.mvn"
+  ARCHIVE="$BASEDIR/.mvn/apache-maven-3.9.9-bin.zip"
+  URL="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.9/apache-maven-3.9.9-bin.zip"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$URL" -o "$ARCHIVE"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q "$URL" -O "$ARCHIVE"
+  else
+    echo "curl or wget is required to bootstrap Maven wrapper" >&2
+    exit 1
+  fi
+
+  unzip -q -o "$ARCHIVE" -d "$BASEDIR/.mvn"
+fi
+
+exec "$MAVEN_BIN" "$@"
