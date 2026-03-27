@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="hu">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -13,19 +13,19 @@
     <section>
       <h2>Import</h2>
       <input type="file" id="fileInput" accept=".csv,.ld,.ldx" />
-      <button id="uploadBtn">Felt�lt�s</button>
+      <button id="uploadBtn">Upload</button>
       <pre id="importResult"></pre>
     </section>
 
     <section>
-      <h2>Session�k</h2>
-      <button id="refreshSessions">Friss�t�s</button>
+      <h2>Sessions</h2>
+      <button id="refreshSessions">Refresh</button>
       <select id="sessionSelect"></select>
-      <button id="loadSession">Bet�lt�s</button>
+      <button id="loadSession">Load</button>
     </section>
 
     <section>
-      <h2>K�r grafikonok</h2>
+      <h2>Lap charts</h2>
       <canvas id="speedChart"></canvas>
       <canvas id="throttleBrakeChart"></canvas>
       <canvas id="gearChart"></canvas>
@@ -38,12 +38,12 @@
     </section>
 
     <section>
-      <h2>K�r �sszehasonl�t�s</h2>
+      <h2>Lap comparison</h2>
       <label>Reference session:</label>
       <select id="refSession"></select>
       <label>Compare session:</label>
       <select id="cmpSession"></select>
-      <button id="runCompare">�sszehasonl�t�s</button>
+      <button id="runCompare">Compare</button>
       <pre id="compareResult"></pre>
     </section>
   </main>
