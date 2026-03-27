@@ -23,6 +23,28 @@ let throttleBrakeChart;
 let gearChart;
 let trackMapChart;
 
+const chartTheme = {
+  responsive: true,
+  maintainAspectRatio: true,
+  interaction: { mode: "index", intersect: false },
+  plugins: {
+    legend: {
+      display: true,
+      labels: { color: "#e8edf4", font: { size: 12 } }
+    }
+  },
+  scales: {
+    x: {
+      ticks: { color: "#8b9cb3", maxTicksLimit: 12 },
+      grid: { color: "rgba(255,255,255,0.06)" }
+    },
+    y: {
+      ticks: { color: "#8b9cb3" },
+      grid: { color: "rgba(255,255,255,0.06)" }
+    }
+  }
+};
+
 async function uploadTelemetry() {
   const fileInput = document.getElementById("fileInput");
   const resultBox = document.getElementById("importResult");
@@ -84,12 +106,7 @@ function drawOrUpdateChart(chartRef, canvasId, labels, datasets) {
   return new Chart(document.getElementById(canvasId), {
     type: "line",
     data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      interaction: { mode: "index", intersect: false },
-      plugins: { legend: { display: true } }
-    }
+    options: chartTheme
   });
 }
 
@@ -98,9 +115,10 @@ function drawOrUpdateScatter(chartRef, canvasId, points) {
     label: "Track map",
     data: points,
     showLine: true,
-    borderColor: "#f59e0b",
-    backgroundColor: "#f59e0b",
-    pointRadius: 1
+    borderColor: "#ff3d2e",
+    backgroundColor: "rgba(255,61,46,0.5)",
+    pointRadius: 1,
+    borderWidth: 2
   }];
 
   if (chartRef) {
@@ -115,9 +133,20 @@ function drawOrUpdateScatter(chartRef, canvasId, points) {
     options: {
       responsive: true,
       maintainAspectRatio: true,
+      plugins: {
+        legend: { labels: { color: "#e8edf4" } }
+      },
       scales: {
-        x: { title: { display: true, text: "Longitude" } },
-        y: { title: { display: true, text: "Latitude" } }
+        x: {
+          title: { display: true, text: "Longitude", color: "#8b9cb3" },
+          ticks: { color: "#8b9cb3" },
+          grid: { color: "rgba(255,255,255,0.06)" }
+        },
+        y: {
+          title: { display: true, text: "Latitude", color: "#8b9cb3" },
+          ticks: { color: "#8b9cb3" },
+          grid: { color: "rgba(255,255,255,0.06)" }
+        }
       }
     }
   });
@@ -153,16 +182,16 @@ async function loadSelectedSession() {
     .map((p) => ({ x: p.longitude, y: p.latitude }));
 
   speedChart = drawOrUpdateChart(speedChart, "speedChart", labels, [
-    { label: "Speed", data: speed, borderColor: "#2563eb", pointRadius: 0 }
+    { label: "Speed", data: speed, borderColor: "#ff3d2e", backgroundColor: "rgba(255,61,46,0.12)", fill: false, tension: 0.15, pointRadius: 0, borderWidth: 2 }
   ]);
 
   throttleBrakeChart = drawOrUpdateChart(throttleBrakeChart, "throttleBrakeChart", labels, [
-    { label: "Throttle", data: throttle, borderColor: "#16a34a", pointRadius: 0 },
-    { label: "Brake", data: brake, borderColor: "#dc2626", pointRadius: 0 }
+    { label: "Throttle", data: throttle, borderColor: "#22c55e", tension: 0.15, pointRadius: 0, borderWidth: 2 },
+    { label: "Brake", data: brake, borderColor: "#ef4444", tension: 0.15, pointRadius: 0, borderWidth: 2 }
   ]);
 
   gearChart = drawOrUpdateChart(gearChart, "gearChart", labels, [
-    { label: "Gear", data: gear, borderColor: "#7c3aed", pointRadius: 0 }
+    { label: "Gear", data: gear, borderColor: "#c084fc", tension: 0.1, pointRadius: 0, borderWidth: 2 }
   ]);
 
   const trackInfo = document.getElementById("trackInfo");

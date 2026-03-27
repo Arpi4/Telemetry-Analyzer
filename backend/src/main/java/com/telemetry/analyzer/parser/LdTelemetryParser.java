@@ -44,7 +44,7 @@ public class LdTelemetryParser implements TelemetryParser {
             report.addWarning("LDX XML parse failed, falling back to delimited parser.");
         } else if (looksBinary(content)) {
             // MoTeC LD is typically proprietary binary; parsing requires vendor-specific spec.
-            report.addError("Binary .ld format detected. Export telemetry to CSV or XML-based LDX for this parser.");
+            report.addError("MoTeC binary .ld file detected. Export CSV or ASCII from MoTeC i2, or use an XML-based .ldx export for this tool.");
             return new SessionData("session-empty", sourceFile, Instant.now(), List.of());
         }
 

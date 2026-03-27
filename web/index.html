@@ -4,49 +4,81 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Motorsport Telemetry Analyzer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <main>
-    <h1>Motorsport Telemetry Analyzer</h1>
+  <div class="page">
+    <header class="hero">
+      <div class="hero-stripes" aria-hidden="true"></div>
+      <div class="hero-inner">
+        <p class="hero-badge">Live telemetry</p>
+        <h1 class="hero-title">Telemetry Analyzer</h1>
+        <p class="hero-tagline">CSV · MoTeC export · lap compare · GPS track</p>
+      </div>
+    </header>
 
-    <section>
-      <h2>Import</h2>
-      <input type="file" id="fileInput" accept=".csv,.ld,.ldx" />
-      <button id="uploadBtn">Upload</button>
-      <pre id="importResult"></pre>
-    </section>
+    <main class="content">
+      <section class="panel">
+        <h2 class="panel-title"><span class="panel-accent"></span> Import</h2>
+        <p class="panel-hint">Drop a CSV (MoTeC i2 export), LDX, or supported file.</p>
+        <div class="row">
+          <label class="file-input">
+            <input type="file" id="fileInput" accept=".csv,.ld,.ldx" />
+            <span class="file-input-label">Choose file</span>
+          </label>
+          <button type="button" class="btn btn-primary" id="uploadBtn">Upload</button>
+        </div>
+        <pre id="importResult" class="code-out"></pre>
+      </section>
 
-    <section>
-      <h2>Sessions</h2>
-      <button id="refreshSessions">Refresh</button>
-      <select id="sessionSelect"></select>
-      <button id="loadSession">Load</button>
-    </section>
+      <section class="panel">
+        <h2 class="panel-title"><span class="panel-accent"></span> Sessions</h2>
+        <div class="row">
+          <button type="button" class="btn btn-ghost" id="refreshSessions">Refresh</button>
+          <select id="sessionSelect" class="select"></select>
+          <button type="button" class="btn btn-primary" id="loadSession">Load</button>
+        </div>
+      </section>
 
-    <section>
-      <h2>Lap charts</h2>
-      <canvas id="speedChart"></canvas>
-      <canvas id="throttleBrakeChart"></canvas>
-      <canvas id="gearChart"></canvas>
-    </section>
+      <section class="panel">
+        <h2 class="panel-title"><span class="panel-accent"></span> Lap charts</h2>
+        <div class="chart-grid">
+          <div class="chart-wrap"><canvas id="speedChart"></canvas></div>
+          <div class="chart-wrap"><canvas id="throttleBrakeChart"></canvas></div>
+          <div class="chart-wrap"><canvas id="gearChart"></canvas></div>
+        </div>
+      </section>
 
-    <section>
-      <h2>Track map (GPS)</h2>
-      <p id="trackInfo">No GPS data loaded.</p>
-      <canvas id="trackMapChart"></canvas>
-    </section>
+      <section class="panel">
+        <h2 class="panel-title"><span class="panel-accent"></span> Track map (GPS)</h2>
+        <p id="trackInfo" class="panel-hint">No GPS data loaded.</p>
+        <div class="chart-wrap chart-wrap-wide"><canvas id="trackMapChart"></canvas></div>
+      </section>
 
-    <section>
-      <h2>Lap comparison</h2>
-      <label>Reference session:</label>
-      <select id="refSession"></select>
-      <label>Compare session:</label>
-      <select id="cmpSession"></select>
-      <button id="runCompare">Compare</button>
-      <pre id="compareResult"></pre>
-    </section>
-  </main>
+      <section class="panel">
+        <h2 class="panel-title"><span class="panel-accent"></span> Lap comparison</h2>
+        <div class="compare-grid">
+          <label class="field">
+            <span class="field-label">Reference session</span>
+            <select id="refSession" class="select"></select>
+          </label>
+          <label class="field">
+            <span class="field-label">Compare session</span>
+            <select id="cmpSession" class="select"></select>
+          </label>
+        </div>
+        <button type="button" class="btn btn-primary" id="runCompare">Compare</button>
+        <pre id="compareResult" class="code-out"></pre>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Motorsport Telemetry Analyzer</span>
+    </footer>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="app.js"></script>
