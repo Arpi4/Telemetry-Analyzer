@@ -2,7 +2,9 @@ package com.telemetry.analyzer.api;
 
 import com.telemetry.analyzer.domain.LapData;
 import com.telemetry.analyzer.domain.SessionData;
+import com.telemetry.analyzer.api.dto.SegmentDeltaDto;
 import com.telemetry.analyzer.service.AnalysisService;
+import com.telemetry.analyzer.service.SegmentCompareService;
 import com.telemetry.analyzer.service.SessionStore;
 import com.telemetry.analyzer.service.TelemetryImportService;
 import jakarta.validation.constraints.NotBlank;
@@ -24,11 +26,14 @@ public class TelemetryController {
     private final TelemetryImportService importService;
     private final SessionStore sessionStore;
     private final AnalysisService analysisService;
+    private final SegmentCompareService segmentCompareService;
 
-    public TelemetryController(TelemetryImportService importService, SessionStore sessionStore, AnalysisService analysisService) {
+    public TelemetryController(TelemetryImportService importService, SessionStore sessionStore, AnalysisService analysisService,
+                               SegmentCompareService segmentCompareService) {
         this.importService = importService;
         this.sessionStore = sessionStore;
         this.analysisService = analysisService;
+        this.segmentCompareService = segmentCompareService;
     }
 
     @PostMapping("/telemetry/import")
@@ -111,5 +116,34 @@ public class TelemetryController {
         }
 
         return ResponseEntity.ok(analysisService.compareLaps(refLap, cmpLap));
+    }
+
+    /**
+     * Split a lap into segments and estimate time delta per segment (compare minus reference).
+     * Uses Distance channel when present; otherwise equal index slices.
+     */
+    @GetMapping("/compare/segments")
+    public ResponseEntity<?> compareSegments(@RequestParam String referenceSessionId,
+                                             @RequestParam String compareSessionId,
+                                             @RequestParam(defaultValue = "lap-1") String lapId,
+                                             @RequestParam(defaultValue = "10") int segmentCount) {
+        SessionData ref = sessionStore.get(referenceSessionId);
+        SessionData cmp = sessionStore.get(compareSessionId);
+        if (ref == null || cmp == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "One or both sessions not found."));
+        }
+        if (ref.laps().isEmpty() || cmp.laps().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Cannot compare: one or both sessions have no lap data."));
+        }
+        LapData refLap = ref.laps().stream().filter(l -> l.lapId().equals(lapId)).findFirst().orElse(null);
+        LapData cmpLap = cmp.laps().stream().filter(l -> l.lapId().equals(lapId)).findFirst().orElse(null);
+        if (refLap == null || cmpLap == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Lap not found in one or both sessions.", "lapId", lapId));
+        }
+        if (refLap.points().isEmpty() || cmpLap.points().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Cannot compare: one or both laps have no samples.", "lapId", lapId));
+        }
+        List<SegmentDeltaDto> segments = segmentCompareService.compareLapSegments(refLap, cmpLap, segmentCount);
+        return ResponseEntity.ok(Map.of("lapId", lapId, "segments", segments));
     }
 }
