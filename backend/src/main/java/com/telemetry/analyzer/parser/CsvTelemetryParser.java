@@ -30,11 +30,11 @@ public class CsvTelemetryParser implements TelemetryParser {
         try {
             String text = CsvFormatSniffer.stripBom(CsvFormatSniffer.textFromBytes(content));
 
-            if (AdaptedCsvProfiles.isMoTeCWorkbookExport(text)) {
-                return AdaptedCsvProfiles.parseMoTeCWorkbook(text, sourceFile, report);
-            }
             if (AdaptedCsvProfiles.isOpenF1LapsCsv(text)) {
                 return AdaptedCsvProfiles.parseOpenF1Laps(text, sourceFile, report);
+            }
+            if (AdaptedCsvProfiles.hasMotecStyleChannelHeader(text)) {
+                return AdaptedCsvProfiles.parseMoTeCWorkbook(text, sourceFile, report);
             }
 
             String firstLine = text.lines().filter(l -> !l.isBlank()).findFirst().orElse("");
