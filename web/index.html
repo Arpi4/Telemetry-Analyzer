@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="hu">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -16,38 +16,38 @@
       <div class="hero-inner">
         <p class="hero-badge">Live telemetry</p>
         <h1 class="hero-title">Telemetry Analyzer</h1>
-        <p class="hero-tagline">CSV · MoTeC · OpenF1 · összehasonlítás</p>
+        <p class="hero-tagline">CSV · MoTeC · OpenF1 · lap compare</p>
       </div>
     </header>
 
     <main class="content">
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Import</h2>
-        <p class="panel-help-hu">Itt választod ki a telemetria-fájlt a gépedről, majd a <strong>Feltöltés</strong> gombbal elküldöd a szervernek. A szerver beolvassa az adatokat, és megjelenik egy rövid jelentés (siker / figyelmeztetések / hibák). Nagy MoTeC fájlok feltöltése eltarthat egy kicsit.</p>
-        <p class="panel-hint">MoTeC i2 workbook CSV, OpenF1 laps export, általános telemetry CSV vagy LDX.</p>
+        <p class="panel-help">Choose a telemetry file on your computer and press <strong>Upload</strong>. The server parses it and returns a short report (success, warnings, or errors). Large MoTeC exports may take a moment.</p>
+        <p class="panel-hint">MoTeC i2 workbook CSV, OpenF1 laps export, generic telemetry CSV, or LDX.</p>
         <div class="row">
           <label class="file-input">
             <input type="file" id="fileInput" accept=".csv,.ld,.ldx" />
-            <span class="file-input-label">Fájl kiválasztása</span>
+            <span class="file-input-label">Choose file</span>
           </label>
-          <button type="button" class="btn btn-primary" id="uploadBtn">Feltöltés</button>
+          <button type="button" class="btn btn-primary" id="uploadBtn">Upload</button>
         </div>
         <pre id="importResult" class="code-out"></pre>
       </section>
 
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Sessions</h2>
-        <p class="panel-help-hu">A már feltöltött mérések listája. Válassz egyet, majd <strong>Betöltés</strong>: ez tölti be a grafikonokhoz és a pálya nézethez. A <strong>Frissítés</strong> újra lekéri a listát (pl. feltöltés után).</p>
+        <p class="panel-help">Uploaded runs listed here. Pick one and <strong>Load session</strong> to fill the charts and track views. Use <strong>Refresh</strong> after a new upload.</p>
         <div class="row">
-          <button type="button" class="btn btn-ghost" id="refreshSessions">Frissítés</button>
+          <button type="button" class="btn btn-ghost" id="refreshSessions">Refresh</button>
           <select id="sessionSelect" class="select"></select>
-          <button type="button" class="btn btn-primary" id="loadSession">Betöltés</button>
+          <button type="button" class="btn btn-primary" id="loadSession">Load session</button>
         </div>
       </section>
 
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Lap charts</h2>
-        <p class="panel-help-hu">A vízszintes tengely általában <strong>idő</strong> vagy <strong>körszám</strong> (forrástól függően). <strong>Sebesség</strong>: jármű sebessége (tipikusan km/h). <strong>Gáz / fék</strong>: pedálhasználat (százalék vagy becsült érték). <strong>Váltó</strong>: aktuális fokozat. Ezek együtt mutatják, hol gyorsítasz, hol fékezel és hogyan változik a tempó a körön.</p>
+        <p class="panel-help">The horizontal axis is usually <strong>time</strong> or <strong>sample index</strong>, depending on the file. <strong>Speed</strong> is vehicle speed (typically km/h). <strong>Throttle / brake</strong> show pedal use (percent or estimated). <strong>Gear</strong> is the engaged gear. Together they show where you accelerate, brake, and how pace changes around the lap. Click a <strong>segment</strong> on the schematic map below to zoom the charts to that part of the lap.</p>
         <div class="chart-grid">
           <div class="chart-wrap"><canvas id="speedChart"></canvas></div>
           <div class="chart-wrap"><canvas id="throttleBrakeChart"></canvas></div>
@@ -56,15 +56,25 @@
       </section>
 
       <section class="panel">
-        <h2 class="panel-title"><span class="panel-accent"></span> Pálya / haladás</h2>
-        <p class="panel-help-hu"><strong>GPS térkép</strong>: ha a fájlban van valódi szélességi/hosszúsági koordináta, a pálya vonala a földrajzi síkon jelenik meg (mintha felülnézetből látnád az autó útvonalát). A MoTeC exportokban gyakori <strong>G_LAT / G_LON</strong> <em>nem</em> GPS, hanem oldalsó/hosszanti gyorsulás — ezért alapból nem használjuk térképnek. <strong>Ha nincs GPS</strong>, de van <strong>Distance</strong> (megtett út, m), akkor <strong>útvonal-helyettesítő ábra</strong> jelenik meg: vízszintesen a megtett távolság, függőlegesen a sebesség — így látod, hol mentél gyorsabban a pálya „hossza mentén”. Az <strong>OpenF1 laps</strong> fájl körszintű összesítő, nincs benne GPS sem távolság mintánként, ezért itt általában üres marad ez a rész.</p>
-        <p id="trackInfo" class="panel-hint">Válassz sessiont, majd Betöltés.</p>
+        <h2 class="panel-title"><span class="panel-accent"></span> Track &amp; segments</h2>
+        <p class="panel-help"><strong>GPS plot</strong>: when the file contains plausible latitude/longitude, the scatter chart shows the path on the map plane. MoTeC fields named <strong>G_LAT / G_LON</strong> are often <em>not</em> GPS (they can be lateral/longitudinal acceleration channels), so they are ignored for mapping. <strong>Distance fallback</strong>: if there is no usable GPS but there is a <strong>Distance</strong> channel (metres travelled), the wide chart shows speed versus distance along the lap — not geography, but useful for pace vs position. <strong>Schematic segment map</strong>: the SVG is a fixed outline (Monza-style) for placing numbered segments. It is <em>not</em> your real GPS trace. Numbers line up with equal parts of the lap (by distance when available, otherwise by sample index). After you load <strong>segment deltas</strong> from two sessions, marker colours show where the compare lap is slower (orange) or faster (green) than the reference in each segment; grey means roughly matched. Values are approximate segment deltas in seconds (positive = you lose time vs reference in that segment).</p>
+        <p id="trackInfo" class="panel-hint">Select a session, then Load session.</p>
         <div class="chart-wrap chart-wrap-wide"><canvas id="trackMapChart"></canvas></div>
+        <div id="trackSchematicWrap" class="track-schematic-wrap" hidden>
+          <svg id="trackSchematicSvg" class="track-schematic-svg" viewBox="0 0 100 100" role="img" aria-label="Schematic lap segments">
+            <path id="trackSchematicPath" class="track-schematic-path" d="" />
+            <g id="trackSegmentMarkers"></g>
+          </svg>
+          <p id="trackSegmentLegend" class="panel-hint"></p>
+          <div class="track-schematic-actions">
+            <button type="button" class="btn btn-ghost" id="clearSegmentFocus">Show full lap</button>
+          </div>
+        </div>
       </section>
 
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Lap comparison</h2>
-        <p class="panel-help-hu">Két feltöltött mérés <strong>azonos nevű köre</strong> (alapból <code>lap-1</code>) között egyszerű összehasonlítás: tipikusan az átlagos sebesség különbsége. Nem teljes időmérő szoftver, csak gyors összkép két szett adatról.</p>
+        <p class="panel-help">Compare the <strong>same lap id</strong> (default <code>lap-1</code>) between two uploaded sessions for a quick summary. Use <strong>Load segment deltas on map</strong> after choosing reference and compare sessions to colour the schematic markers and show per-segment deltas. The segment model uses average speeds in each slice; it is a coaching-style hint, not a professional timing loop.</p>
         <div class="compare-grid">
           <label class="field">
             <span class="field-label">Reference session</span>
@@ -75,7 +85,16 @@
             <select id="cmpSession" class="select"></select>
           </label>
         </div>
-        <button type="button" class="btn btn-primary" id="runCompare">Összehasonlítás</button>
+        <div class="compare-lap-row">
+          <label class="field">
+            <span class="field-label">Lap id (both sessions)</span>
+            <input type="text" id="compareLapId" class="select" style="min-width: 8rem" value="lap-1" />
+          </label>
+        </div>
+        <div class="row" style="margin-top: 0.75rem">
+          <button type="button" class="btn btn-primary" id="runCompare">Compare laps</button>
+          <button type="button" class="btn btn-ghost" id="loadSegmentDeltas">Load segment deltas on map</button>
+        </div>
         <pre id="compareResult" class="code-out"></pre>
       </section>
     </main>
@@ -86,6 +105,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="track-segments.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -144,7 +144,7 @@ body {
   color: var(--muted);
 }
 
-.panel-help-hu {
+.panel-help {
   margin: 0 0 0.85rem;
   font-size: 0.88rem;
   line-height: 1.55;
@@ -152,7 +152,7 @@ body {
   max-width: 68ch;
 }
 
-.panel-help-hu strong {
+.panel-help strong {
   color: #cbd5e1;
   font-weight: 600;
 }
@@ -317,4 +317,86 @@ body {
   text-align: center;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.track-schematic-wrap {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 8px;
+  background: #0a0e14;
+  border: 1px solid var(--border);
+}
+
+.track-schematic-wrap[hidden] {
+  display: none !important;
+}
+
+.track-schematic-svg {
+  display: block;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  aspect-ratio: 1 / 1;
+}
+
+.track-schematic-path {
+  fill: none;
+  stroke: rgba(255, 61, 46, 0.55);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+
+.track-segment-hit {
+  cursor: pointer;
+  fill: transparent;
+}
+
+.track-segment-marker {
+  stroke: #0a0e14;
+  stroke-width: 0.35;
+  pointer-events: none;
+}
+
+.track-segment-marker.neutral {
+  fill: #6b7280;
+}
+
+.track-segment-marker.slow {
+  fill: #f97316;
+}
+
+.track-segment-marker.fast {
+  fill: #22c55e;
+}
+
+.track-segment-marker.selected {
+  stroke: #fff;
+  stroke-width: 0.55;
+}
+
+.track-segment-label {
+  fill: #e8edf4;
+  font-size: 3.2px;
+  font-family: var(--font-ui);
+  pointer-events: none;
+}
+
+.track-schematic-actions {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.compare-lap-row {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+
+.compare-lap-row .field {
+  margin: 0;
 }
