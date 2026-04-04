@@ -50,7 +50,7 @@ public class GenericDelimitedParser {
                 int gear = (int) Double.parseDouble(row[gearIdx]);
                 Double latitude = parseOptional(row, latIdx);
                 Double longitude = parseOptional(row, lonIdx);
-                points.add(new TelemetryPoint(timestamp, speed, throttle, brake, gear, latitude, longitude));
+                points.add(new TelemetryPoint(timestamp, speed, throttle, brake, gear, latitude, longitude, null));
             } catch (Exception ex) {
                 skipped++;
             }

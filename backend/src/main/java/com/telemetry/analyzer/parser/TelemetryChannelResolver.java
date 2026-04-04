@@ -67,6 +67,14 @@ public final class TelemetryChannelResolver {
         return findFuzzy(headers, "gps long", "gps lon", "longitude");
     }
 
+    public static String findDistance(Map<String, Integer> headers) {
+        String key = findExact(headers, "distance", "dist", "odo", "odometer", "lap dist");
+        if (key != null) {
+            return key;
+        }
+        return findFuzzy(headers, "distance", "odometer");
+    }
+
     private static String findExact(Map<String, Integer> headers, String... candidates) {
         for (String raw : headers.keySet()) {
             String norm = raw.trim().toLowerCase(Locale.ROOT);

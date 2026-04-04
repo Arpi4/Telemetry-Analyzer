@@ -7,6 +7,7 @@ public record TelemetryPoint(
         double brake,
         int gear,
         Double latitude,
-        Double longitude
+        Double longitude,
+        Double distanceMeters
 ) {
 }
