@@ -61,6 +61,7 @@ public class CsvTelemetryParser implements TelemetryParser {
                 String gearKey = TelemetryChannelResolver.findGear(headers);
                 String latKey = TelemetryChannelResolver.findLat(headers);
                 String lonKey = TelemetryChannelResolver.findLon(headers);
+                String distKey = TelemetryChannelResolver.findDistance(headers);
 
                 if (speedKey == null || throttleKey == null || brakeKey == null || gearKey == null) {
                     report.addError("Missing required channels in CSV. Need speed, throttle, brake, and gear "
@@ -82,7 +83,8 @@ public class CsvTelemetryParser implements TelemetryParser {
                         int gear = (int) Math.round(parseRequiredDouble(rec, gearKey));
                         Double lat = parseOptionalDouble(rec, latKey);
                         Double lon = parseOptionalDouble(rec, lonKey);
-                        points.add(new TelemetryPoint(timestamp, speed, throttle, brake, gear, lat, lon));
+                        Double dist = parseOptionalDouble(rec, distKey);
+                        points.add(new TelemetryPoint(timestamp, speed, throttle, brake, gear, lat, lon, dist));
                     } catch (Exception ex) {
                         skipped++;
                     }

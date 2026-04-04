@@ -83,11 +83,12 @@ public class LdTelemetryParser implements TelemetryParser {
                 int gear = (int) readNumber(el, "gear", "g", "gearpos", null);
                 Double lat = readOptionalNumber(el, "lat", "latitude", "gps_lat");
                 Double lon = readOptionalNumber(el, "lon", "longitude", "gps_lon");
+                Double dist = readOptionalNumber(el, "distance", "dist", "odo");
 
                 if (Double.isNaN(speed) || Double.isNaN(throttle) || Double.isNaN(brake) || Double.isNaN(gear)) {
                     continue;
                 }
-                points.add(new TelemetryPoint(timestamp, speed, throttle, brake, gear, lat, lon));
+                points.add(new TelemetryPoint(timestamp, speed, throttle, brake, gear, lat, lon, dist));
             }
 
             if (points.isEmpty()) {

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="hu">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -16,35 +16,38 @@
       <div class="hero-inner">
         <p class="hero-badge">Live telemetry</p>
         <h1 class="hero-title">Telemetry Analyzer</h1>
-        <p class="hero-tagline">CSV · MoTeC export · lap compare · GPS track</p>
+        <p class="hero-tagline">CSV · MoTeC · OpenF1 · összehasonlítás</p>
       </div>
     </header>
 
     <main class="content">
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Import</h2>
-        <p class="panel-hint">MoTeC i2 workbook CSV, OpenF1 laps export, generic telemetry CSV, or LDX.</p>
+        <p class="panel-help-hu">Itt választod ki a telemetria-fájlt a gépedről, majd a <strong>Feltöltés</strong> gombbal elküldöd a szervernek. A szerver beolvassa az adatokat, és megjelenik egy rövid jelentés (siker / figyelmeztetések / hibák). Nagy MoTeC fájlok feltöltése eltarthat egy kicsit.</p>
+        <p class="panel-hint">MoTeC i2 workbook CSV, OpenF1 laps export, általános telemetry CSV vagy LDX.</p>
         <div class="row">
           <label class="file-input">
             <input type="file" id="fileInput" accept=".csv,.ld,.ldx" />
-            <span class="file-input-label">Choose file</span>
+            <span class="file-input-label">Fájl kiválasztása</span>
           </label>
-          <button type="button" class="btn btn-primary" id="uploadBtn">Upload</button>
+          <button type="button" class="btn btn-primary" id="uploadBtn">Feltöltés</button>
         </div>
         <pre id="importResult" class="code-out"></pre>
       </section>
 
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Sessions</h2>
+        <p class="panel-help-hu">A már feltöltött mérések listája. Válassz egyet, majd <strong>Betöltés</strong>: ez tölti be a grafikonokhoz és a pálya nézethez. A <strong>Frissítés</strong> újra lekéri a listát (pl. feltöltés után).</p>
         <div class="row">
-          <button type="button" class="btn btn-ghost" id="refreshSessions">Refresh</button>
+          <button type="button" class="btn btn-ghost" id="refreshSessions">Frissítés</button>
           <select id="sessionSelect" class="select"></select>
-          <button type="button" class="btn btn-primary" id="loadSession">Load</button>
+          <button type="button" class="btn btn-primary" id="loadSession">Betöltés</button>
         </div>
       </section>
 
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Lap charts</h2>
+        <p class="panel-help-hu">A vízszintes tengely általában <strong>idő</strong> vagy <strong>körszám</strong> (forrástól függően). <strong>Sebesség</strong>: jármű sebessége (tipikusan km/h). <strong>Gáz / fék</strong>: pedálhasználat (százalék vagy becsült érték). <strong>Váltó</strong>: aktuális fokozat. Ezek együtt mutatják, hol gyorsítasz, hol fékezel és hogyan változik a tempó a körön.</p>
         <div class="chart-grid">
           <div class="chart-wrap"><canvas id="speedChart"></canvas></div>
           <div class="chart-wrap"><canvas id="throttleBrakeChart"></canvas></div>
@@ -53,13 +56,15 @@
       </section>
 
       <section class="panel">
-        <h2 class="panel-title"><span class="panel-accent"></span> Track map (GPS)</h2>
-        <p id="trackInfo" class="panel-hint">No GPS data loaded.</p>
+        <h2 class="panel-title"><span class="panel-accent"></span> Pálya / haladás</h2>
+        <p class="panel-help-hu"><strong>GPS térkép</strong>: ha a fájlban van valódi szélességi/hosszúsági koordináta, a pálya vonala a földrajzi síkon jelenik meg (mintha felülnézetből látnád az autó útvonalát). A MoTeC exportokban gyakori <strong>G_LAT / G_LON</strong> <em>nem</em> GPS, hanem oldalsó/hosszanti gyorsulás — ezért alapból nem használjuk térképnek. <strong>Ha nincs GPS</strong>, de van <strong>Distance</strong> (megtett út, m), akkor <strong>útvonal-helyettesítő ábra</strong> jelenik meg: vízszintesen a megtett távolság, függőlegesen a sebesség — így látod, hol mentél gyorsabban a pálya „hossza mentén”. Az <strong>OpenF1 laps</strong> fájl körszintű összesítő, nincs benne GPS sem távolság mintánként, ezért itt általában üres marad ez a rész.</p>
+        <p id="trackInfo" class="panel-hint">Válassz sessiont, majd Betöltés.</p>
         <div class="chart-wrap chart-wrap-wide"><canvas id="trackMapChart"></canvas></div>
       </section>
 
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Lap comparison</h2>
+        <p class="panel-help-hu">Két feltöltött mérés <strong>azonos nevű köre</strong> (alapból <code>lap-1</code>) között egyszerű összehasonlítás: tipikusan az átlagos sebesség különbsége. Nem teljes időmérő szoftver, csak gyors összkép két szett adatról.</p>
         <div class="compare-grid">
           <label class="field">
             <span class="field-label">Reference session</span>
@@ -70,7 +75,7 @@
             <select id="cmpSession" class="select"></select>
           </label>
         </div>
-        <button type="button" class="btn btn-primary" id="runCompare">Compare</button>
+        <button type="button" class="btn btn-primary" id="runCompare">Összehasonlítás</button>
         <pre id="compareResult" class="code-out"></pre>
       </section>
     </main>

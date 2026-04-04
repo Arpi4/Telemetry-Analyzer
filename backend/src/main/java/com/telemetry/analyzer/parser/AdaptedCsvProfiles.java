@@ -100,6 +100,9 @@ public final class AdaptedCsvProfiles {
         int idxThrottle = indexOfName(columnNames, "throttle");
         int idxBrake = indexOfName(columnNames, "brake");
         int idxGear = indexOfName(columnNames, "gear");
+        int idxDist = indexOfName(columnNames, "distance");
+        int idxGpsLat = findGpsLatitudeColumnIndex(columnNames);
+        int idxGpsLon = findGpsLongitudeColumnIndex(columnNames);
         if (idxSpeed < 0 || idxThrottle < 0 || idxBrake < 0 || idxGear < 0) {
             report.addError("MoTeC CSV: missing Speed / Throttle / Brake / Gear columns.");
             return emptySession(sourceFile);
@@ -135,7 +138,10 @@ public final class AdaptedCsvProfiles {
                 double brake = CsvTelemetryParser.parseDoubleLoose(cells.get(idxBrake));
                 String gearCell = cells.get(idxGear).replace("\"", "");
                 int gear = parseGearCell(gearCell);
-                points.add(new TelemetryPoint(t, speed, throttle, brake, gear, null, null));
+                Double lat = parseGeoLat(cells, idxGpsLat);
+                Double lon = parseGeoLon(cells, idxGpsLon);
+                Double dist = idxDist >= 0 ? parseOptionalDoubleCell(cells, idxDist) : null;
+                points.add(new TelemetryPoint(t, speed, throttle, brake, gear, lat, lon, dist));
             } catch (Exception ex) {
                 skipped++;
             }
@@ -243,7 +249,7 @@ public final class AdaptedCsvProfiles {
                 double throttle = Math.min(100, Math.max(0, avgSpeed / 3.3));
                 double brake = pit ? 45 : 8;
                 int gear = (int) (Math.abs(lapNo) % 8) + 1;
-                points.add(new TelemetryPoint(lapNo, avgSpeed, throttle, brake, gear, null, null));
+                points.add(new TelemetryPoint(lapNo, avgSpeed, throttle, brake, gear, null, null, null));
             } catch (Exception ex) {
                 skipped++;
             }
@@ -379,6 +385,92 @@ public final class AdaptedCsvProfiles {
             }
         }
         return -1;
+    }
+
+    /**
+     * MoTeC "G_LAT" / "G_LON" are accelerations, not geographic coordinates — skip those names.
+     */
+    private static int findGpsLatitudeColumnIndex(List<String> names) {
+        for (int i = 0; i < names.size(); i++) {
+            String n = names.get(i).toLowerCase(Locale.ROOT);
+            if ("g_lat".equals(n)) {
+                continue;
+            }
+            if (n.contains("gps") && (n.contains("lat") || n.contains("latitude"))) {
+                return i;
+            }
+            if (("latitude".equals(n) || "lat".equals(n)) && !n.contains("g_") && !n.contains("gyro")) {
+                return i;
+            }
+            if (n.contains("nav") && n.contains("lat")) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static int findGpsLongitudeColumnIndex(List<String> names) {
+        for (int i = 0; i < names.size(); i++) {
+            String n = names.get(i).toLowerCase(Locale.ROOT);
+            if ("g_lon".equals(n) || "g_long".equals(n)) {
+                continue;
+            }
+            if (n.contains("gps") && (n.contains("lon") || n.contains("long"))) {
+                return i;
+            }
+            if ("longitude".equals(n) || "long".equals(n)) {
+                return i;
+            }
+            if (n.contains("nav") && (n.contains("lon") || n.contains("long"))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static Double parseGeoLat(List<String> cells, int ix) {
+        if (ix < 0 || ix >= cells.size()) {
+            return null;
+        }
+        try {
+            double v = CsvTelemetryParser.parseDoubleLoose(cells.get(ix));
+            if (v < -90 || v > 90) {
+                return null;
+            }
+            return v;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Double parseGeoLon(List<String> cells, int ix) {
+        if (ix < 0 || ix >= cells.size()) {
+            return null;
+        }
+        try {
+            double v = CsvTelemetryParser.parseDoubleLoose(cells.get(ix));
+            if (v < -180 || v > 180) {
+                return null;
+            }
+            return v;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Double parseOptionalDoubleCell(List<String> cells, int ix) {
+        if (ix < 0 || ix >= cells.size()) {
+            return null;
+        }
+        try {
+            String raw = cells.get(ix);
+            if (raw == null || raw.isBlank()) {
+                return null;
+            }
+            return CsvTelemetryParser.parseDoubleLoose(raw);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static String buildSessionId(String sourceFile) {
