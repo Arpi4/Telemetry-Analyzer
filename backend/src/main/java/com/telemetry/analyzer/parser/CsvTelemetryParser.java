@@ -29,6 +29,14 @@ public class CsvTelemetryParser implements TelemetryParser {
         List<TelemetryPoint> points = new ArrayList<>();
         try {
             String text = CsvFormatSniffer.stripBom(CsvFormatSniffer.textFromBytes(content));
+
+            if (AdaptedCsvProfiles.isMoTeCWorkbookExport(text)) {
+                return AdaptedCsvProfiles.parseMoTeCWorkbook(text, sourceFile, report);
+            }
+            if (AdaptedCsvProfiles.isOpenF1LapsCsv(text)) {
+                return AdaptedCsvProfiles.parseOpenF1Laps(text, sourceFile, report);
+            }
+
             String firstLine = text.lines().filter(l -> !l.isBlank()).findFirst().orElse("");
             char delimiter = CsvFormatSniffer.detectDelimiter(firstLine);
 
