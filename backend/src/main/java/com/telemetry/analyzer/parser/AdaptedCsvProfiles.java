@@ -4,11 +4,7 @@ import com.telemetry.analyzer.domain.ImportReport;
 import com.telemetry.analyzer.domain.LapData;
 import com.telemetry.analyzer.domain.SessionData;
 import com.telemetry.analyzer.domain.TelemetryPoint;
-import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.CSVParser;
-import org.apache.commons.csv.CSVRecord;
 
-import java.io.StringReader;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -19,21 +15,21 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * MoTeC i2 "CSV workbook" exports (preamble + unit row) and OpenF1 laps API CSV (malformed first column quotes).
+ * MoTeC i2 workbook CSV (preamble + unit row) and OpenF1 laps export (odd quoting in segment columns).
  */
 public final class AdaptedCsvProfiles {
 
-    /** OpenF1 CSV often omits the closing quote after the timestamp. */
-    private static final Pattern OPENF1_LEADING_DATE = Pattern.compile(
+    private static final int MAX_MOTEC_POINTS_STORED = 35_000;
+
+    /** OpenF1: missing closing quote after ISO timestamp with numeric timezone offset. */
+    private static final Pattern OPENF1_LEADING_DATE_OFFSET = Pattern.compile(
             "^\"(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?\\+\\d{2}:\\d{2}),(.*)$");
 
-    private AdaptedCsvProfiles() {
-    }
+    /** OpenF1: same with Z suffix. */
+    private static final Pattern OPENF1_LEADING_DATE_Z = Pattern.compile(
+            "^\"(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z),(.*)$");
 
-    public static boolean isMoTeCWorkbookExport(String text) {
-        String head = text.lines().limit(25).reduce("", (a, b) -> a + b + "\n").toLowerCase(Locale.ROOT);
-        return head.contains("motec csv file") || head.contains("\"format\",\"motec")
-                || head.startsWith("\"format\"");
+    private AdaptedCsvProfiles() {
     }
 
     public static boolean isOpenF1LapsCsv(String text) {
@@ -43,8 +39,17 @@ public final class AdaptedCsvProfiles {
     }
 
     /**
-     * OpenF1 exports often omit the closing quote after the ISO timestamp; repair so RFC4180 parsers work.
+     * Channel-row layout: Time + Speed + Throttle + Brake + Gear (MoTeC export or compatible telemetry).
+     * Excludes OpenF1 lap summaries (no throttle/brake in header).
      */
+    public static boolean hasMotecStyleChannelHeader(String text) {
+        if (isOpenF1LapsCsv(text)) {
+            return false;
+        }
+        List<String> lines = text.lines().limit(4000).toList();
+        return findMotecChannelHeaderLineIndex(lines) >= 0;
+    }
+
     public static String repairOpenF1LapsCsvText(String text) {
         StringBuilder out = new StringBuilder();
         boolean first = true;
@@ -53,37 +58,40 @@ public final class AdaptedCsvProfiles {
                 out.append('\n');
             }
             first = false;
-            if (line.startsWith("\"")) {
-                Matcher m = OPENF1_LEADING_DATE.matcher(line);
-                if (m.matches()) {
-                    out.append('"').append(m.group(1)).append('"').append(',').append(m.group(2));
-                    continue;
-                }
-            }
-            out.append(line);
+            out.append(repairOpenF1SingleLine(line));
         }
         return out.toString();
+    }
+
+    static String repairOpenF1SingleLine(String line) {
+        if (!line.startsWith("\"")) {
+            return line;
+        }
+        Matcher m = OPENF1_LEADING_DATE_OFFSET.matcher(line);
+        if (m.matches()) {
+            return '"' + m.group(1) + '"' + ',' + m.group(2);
+        }
+        m = OPENF1_LEADING_DATE_Z.matcher(line);
+        if (m.matches()) {
+            return '"' + m.group(1) + '"' + ',' + m.group(2);
+        }
+        return line;
     }
 
     public static SessionData parseMoTeCWorkbook(String text, String sourceFile, ImportReport report) {
         List<String> lines = text.lines().toList();
         int headerIdx = findMotecChannelHeaderLineIndex(lines);
         if (headerIdx < 0) {
-            report.addError("MoTeC CSV: could not find channel header row (expected Time, Speed, Throttle, …).");
+            report.addError("MoTeC CSV: could not find channel header row (Time, Speed, Throttle, Brake, Gear).");
             return emptySession(sourceFile);
         }
 
-        List<String> columnNames;
-        try {
-            columnNames = parseCsvLineToValues(lines.get(headerIdx), ',');
-        } catch (Exception e) {
-            report.addError("MoTeC CSV: failed to parse header row: " + e.getMessage());
-            return emptySession(sourceFile);
-        }
-
+        List<String> columnNames = Rfc4180CsvLineSplitter.split(lines.get(headerIdx).trim(), ',');
+        columnNames = trimAll(columnNames);
         columnNames = dedupeColumnNames(columnNames);
+
         int dataStart = headerIdx + 1;
-        while (dataStart < lines.size() && isMotecUnitRow(lines.get(dataStart), columnNames.size())) {
+        while (dataStart < lines.size() && isMotecUnitRow(lines.get(dataStart))) {
             dataStart++;
         }
 
@@ -101,13 +109,19 @@ public final class AdaptedCsvProfiles {
 
         List<TelemetryPoint> points = new ArrayList<>();
         int skipped = 0;
+        boolean truncated = false;
         for (int i = dataStart; i < lines.size(); i++) {
+            if (points.size() >= MAX_MOTEC_POINTS_STORED) {
+                truncated = true;
+                break;
+            }
             String rawLine = lines.get(i).trim();
             if (rawLine.isEmpty()) {
                 continue;
             }
             try {
-                List<String> cells = parseCsvLineToValues(rawLine, ',');
+                List<String> cells = Rfc4180CsvLineSplitter.split(rawLine, ',');
+                cells = trimAll(cells);
                 if (cells.size() < minCells) {
                     skipped++;
                     continue;
@@ -119,7 +133,7 @@ public final class AdaptedCsvProfiles {
                 double speed = CsvTelemetryParser.parseDoubleLoose(cells.get(idxSpeed));
                 double throttle = CsvTelemetryParser.parseDoubleLoose(cells.get(idxThrottle));
                 double brake = CsvTelemetryParser.parseDoubleLoose(cells.get(idxBrake));
-                String gearCell = cells.get(idxGear).trim().replace("\"", "");
+                String gearCell = cells.get(idxGear).replace("\"", "");
                 int gear = parseGearCell(gearCell);
                 points.add(new TelemetryPoint(t, speed, throttle, brake, gear, null, null));
             } catch (Exception ex) {
@@ -127,10 +141,14 @@ public final class AdaptedCsvProfiles {
             }
         }
 
+        if (truncated) {
+            report.addWarning("MoTeC CSV: stored first " + MAX_MOTEC_POINTS_STORED + " samples only (file truncated for server limits).");
+        }
+
         if (skipped > 0) {
             report.addWarning("MoTeC CSV: skipped " + skipped + " rows.");
         }
-        report.addWarning("Parsed MoTeC workbook CSV (metadata / unit rows stripped).");
+        report.addWarning("Parsed channel-row CSV (MoTeC workbook or compatible).");
 
         return new SessionData(
                 buildSessionId(sourceFile),
@@ -140,76 +158,101 @@ public final class AdaptedCsvProfiles {
         );
     }
 
+    private static List<String> trimAll(List<String> cells) {
+        List<String> out = new ArrayList<>(cells.size());
+        for (String c : cells) {
+            out.add(c == null ? "" : c.trim());
+        }
+        return out;
+    }
+
     private static int parseGearCell(String gearCell) {
-        if (gearCell.isEmpty()) {
+        if (gearCell == null || gearCell.isBlank()) {
             return 0;
         }
         try {
-            return (int) Math.round(Double.parseDouble(gearCell.replace(',', '.')));
+            return (int) Math.round(Double.parseDouble(gearCell.replace(',', '.').trim()));
         } catch (NumberFormatException e) {
-            return gearCell.hashCode() % 8 + 1;
+            return Math.abs(gearCell.hashCode() % 8) + 1;
         }
     }
 
+    /**
+     * OpenF1: do not use Apache CSV for the whole file — segment columns break the parser.
+     */
     public static SessionData parseOpenF1Laps(String text, String sourceFile, ImportReport report) {
-        String fixed = repairOpenF1LapsCsvText(text);
-        char delimiter = ',';
-        CSVFormat format = CsvFormatSniffer.baseFormat(delimiter)
-                .setHeader()
-                .setSkipHeaderRecord(true)
-                .setIgnoreEmptyLines(true)
-                .setTrim(true)
-                .build();
+        List<String> lines = text.lines().toList();
+        int hi = 0;
+        while (hi < lines.size() && lines.get(hi).isBlank()) {
+            hi++;
+        }
+        if (hi >= lines.size()) {
+            report.addError("OpenF1 laps CSV: empty file.");
+            return emptySession(sourceFile);
+        }
+
+        String headerLine = lines.get(hi).trim();
+        List<String> headers = splitSimpleHeader(headerLine);
+        if (headers.isEmpty()) {
+            report.addError("OpenF1 laps CSV: empty header.");
+            return emptySession(sourceFile);
+        }
+
+        int lapNumIx = indexOfHeader(headers, "lap_number");
+        int i1Ix = indexOfHeader(headers, "i1_speed");
+        int i2Ix = indexOfHeader(headers, "i2_speed");
+        int stIx = indexOfHeader(headers, "st_speed");
+        int pitIx = indexOfHeader(headers, "is_pit_out_lap");
+
+        if (lapNumIx < 0) {
+            report.addError("OpenF1 laps CSV: lap_number column not found.");
+            return emptySession(sourceFile);
+        }
 
         List<TelemetryPoint> points = new ArrayList<>();
         int skipped = 0;
-        try (CSVParser csvParser = new CSVParser(new StringReader(fixed), format)) {
-            Map<String, Integer> headerMap = csvParser.getHeaderMap();
-            if (headerMap == null || headerMap.isEmpty()) {
-                report.addError("OpenF1 laps CSV: no header.");
-                return emptySession(sourceFile);
+
+        for (int li = hi + 1; li < lines.size(); li++) {
+            String raw = lines.get(li).trim();
+            if (raw.isEmpty()) {
+                continue;
             }
-
-            String lapNumKey = findColumnKey(headerMap, "lap_number");
-            String i1Key = findColumnKey(headerMap, "i1_speed");
-            String i2Key = findColumnKey(headerMap, "i2_speed");
-            String stKey = findColumnKey(headerMap, "st_speed");
-            String pitKey = findColumnKey(headerMap, "is_pit_out_lap");
-
-            if (lapNumKey == null) {
-                report.addError("OpenF1 laps CSV: lap_number column not found.");
-                return emptySession(sourceFile);
-            }
-
-            for (CSVRecord rec : csvParser) {
-                try {
-                    double lapNo = parseDoubleSafe(rec, lapNumKey, -1);
-                    if (lapNo < 0) {
-                        skipped++;
-                        continue;
-                    }
-                    double avgSpeed = averageSpeedKmh(rec, i1Key, i2Key, stKey);
-                    if (Double.isNaN(avgSpeed) || avgSpeed <= 0) {
-                        avgSpeed = 0;
-                    }
-                    boolean pit = parseBoolCell(rec, pitKey);
-                    double throttle = Math.min(100, Math.max(0, avgSpeed / 3.3));
-                    double brake = pit ? 45 : 8;
-                    int gear = (int) (Math.abs(lapNo) % 8) + 1;
-                    points.add(new TelemetryPoint(lapNo, avgSpeed, throttle, brake, gear, null, null));
-                } catch (Exception ex) {
-                    skipped++;
+            String line = repairOpenF1SingleLine(raw);
+            try {
+                List<String> cells = Rfc4180CsvLineSplitter.split(line, ',');
+                cells = trimAll(cells);
+                while (cells.size() < headers.size()) {
+                    cells.add("");
                 }
+                if (cells.size() < lapNumIx + 1) {
+                    skipped++;
+                    continue;
+                }
+
+                double lapNo = parseDoubleAt(cells, lapNumIx, -1);
+                if (lapNo < 0) {
+                    skipped++;
+                    continue;
+                }
+
+                double avgSpeed = averageSpeedAt(cells, i1Ix, i2Ix, stIx);
+                if (Double.isNaN(avgSpeed) || avgSpeed <= 0) {
+                    avgSpeed = 0;
+                }
+                boolean pit = parseBoolAt(cells, pitIx);
+                double throttle = Math.min(100, Math.max(0, avgSpeed / 3.3));
+                double brake = pit ? 45 : 8;
+                int gear = (int) (Math.abs(lapNo) % 8) + 1;
+                points.add(new TelemetryPoint(lapNo, avgSpeed, throttle, brake, gear, null, null));
+            } catch (Exception ex) {
+                skipped++;
             }
-        } catch (Exception ex) {
-            report.addError("OpenF1 laps CSV: " + ex.getMessage());
-            return emptySession(sourceFile);
         }
 
         if (skipped > 0) {
             report.addWarning("OpenF1 laps: skipped " + skipped + " rows.");
         }
-        report.addWarning("OpenF1 laps summary CSV: one synthetic sample per lap (speed ≈ sector speeds average).");
+        report.addWarning("OpenF1 laps summary: one synthetic sample per lap (sector speed average).");
 
         return new SessionData(
                 buildSessionId(sourceFile),
@@ -219,11 +262,28 @@ public final class AdaptedCsvProfiles {
         );
     }
 
-    private static double parseDoubleSafe(CSVRecord rec, String key, double defaultVal) {
-        if (key == null) {
+    private static List<String> splitSimpleHeader(String headerLine) {
+        List<String> parts = new ArrayList<>();
+        for (String p : headerLine.split(",", -1)) {
+            parts.add(p.trim());
+        }
+        return parts;
+    }
+
+    private static int indexOfHeader(List<String> headers, String name) {
+        for (int i = 0; i < headers.size(); i++) {
+            if (name.equalsIgnoreCase(headers.get(i))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static double parseDoubleAt(List<String> cells, int ix, double defaultVal) {
+        if (ix < 0 || ix >= cells.size()) {
             return defaultVal;
         }
-        String raw = rec.get(key);
+        String raw = cells.get(ix);
         if (raw == null || raw.isBlank()) {
             return defaultVal;
         }
@@ -234,25 +294,25 @@ public final class AdaptedCsvProfiles {
         }
     }
 
-    private static boolean parseBoolCell(CSVRecord rec, String key) {
-        if (key == null) {
+    private static boolean parseBoolAt(List<String> cells, int ix) {
+        if (ix < 0 || ix >= cells.size()) {
             return false;
         }
-        String v = rec.get(key);
+        String v = cells.get(ix);
         if (v == null) {
             return false;
         }
         return v.equalsIgnoreCase("true") || v.equalsIgnoreCase("1");
     }
 
-    private static double averageSpeedKmh(CSVRecord rec, String i1, String i2, String st) {
+    private static double averageSpeedAt(List<String> cells, int i1, int i2, int st) {
         double sum = 0;
         int n = 0;
-        for (String k : List.of(i1, i2, st)) {
-            if (k == null) {
+        for (int ix : List.of(i1, i2, st)) {
+            if (ix < 0 || ix >= cells.size()) {
                 continue;
             }
-            String raw = rec.get(k);
+            String raw = cells.get(ix);
             if (raw == null || raw.isBlank()) {
                 continue;
             }
@@ -264,15 +324,6 @@ public final class AdaptedCsvProfiles {
             }
         }
         return n == 0 ? Double.NaN : sum / n;
-    }
-
-    private static String findColumnKey(Map<String, Integer> headerMap, String logical) {
-        for (String raw : headerMap.keySet()) {
-            if (raw != null && raw.trim().equalsIgnoreCase(logical)) {
-                return raw;
-            }
-        }
-        return null;
     }
 
     private static int findMotecChannelHeaderLineIndex(List<String> lines) {
@@ -293,35 +344,17 @@ public final class AdaptedCsvProfiles {
         return -1;
     }
 
-    private static boolean isMotecUnitRow(String line, int expectedCols) {
+    private static boolean isMotecUnitRow(String line) {
         String t = line.trim();
         if (t.isEmpty()) {
             return false;
         }
-        try {
-            List<String> cells = parseCsvLineToValues(t, ',');
-            if (cells.isEmpty()) {
-                return false;
-            }
-            String c0 = cells.get(0).replace("\"", "").trim().toLowerCase(Locale.ROOT);
-            return "s".equals(c0) || "sec".equals(c0) || "seconds".equals(c0);
-        } catch (Exception e) {
+        List<String> cells = Rfc4180CsvLineSplitter.split(t, ',');
+        if (cells.isEmpty()) {
             return false;
         }
-    }
-
-    private static List<String> parseCsvLineToValues(String line, char delimiter) throws Exception {
-        CSVFormat fmt = CsvFormatSniffer.baseFormat(delimiter).build();
-        try (CSVParser p = new CSVParser(new StringReader(line), fmt)) {
-            for (CSVRecord r : p) {
-                List<String> out = new ArrayList<>();
-                for (int i = 0; i < r.size(); i++) {
-                    out.add(r.get(i));
-                }
-                return out;
-            }
-        }
-        return List.of();
+        String c0 = cells.get(0).replace("\"", "").trim().toLowerCase(Locale.ROOT);
+        return "s".equals(c0) || "sec".equals(c0) || "seconds".equals(c0);
     }
 
     private static List<String> dedupeColumnNames(List<String> names) {

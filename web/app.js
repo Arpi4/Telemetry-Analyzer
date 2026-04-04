@@ -48,22 +48,38 @@ const chartTheme = {
 async function uploadTelemetry() {
   const fileInput = document.getElementById("fileInput");
   const resultBox = document.getElementById("importResult");
+  const uploadBtn = document.getElementById("uploadBtn");
   if (!fileInput.files.length) {
     resultBox.textContent = "Choose a file.";
     return;
   }
 
-  const formData = new FormData();
-  formData.append("file", fileInput.files[0]);
-
-  const res = await fetch(`${apiBase}/telemetry/import`, { method: "POST", body: formData });
-  const data = await parseJsonResponse(res);
-  if (!res.ok) {
-    resultBox.textContent = JSON.stringify(data ?? { error: res.status }, null, 2);
-    return;
+  const file = fileInput.files[0];
+  resultBox.textContent = `Uploading ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MiB)…`;
+  if (uploadBtn) {
+    uploadBtn.disabled = true;
   }
-  resultBox.textContent = JSON.stringify(data, null, 2);
-  await loadSessions();
+
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await fetch(`${apiBase}/telemetry/import`, { method: "POST", body: formData });
+    const data = await parseJsonResponse(res);
+    if (!res.ok) {
+      resultBox.textContent = JSON.stringify(data ?? { error: res.status }, null, 2);
+      return;
+    }
+    resultBox.textContent = JSON.stringify(data, null, 2);
+    await loadSessions();
+  } catch (err) {
+    resultBox.textContent = `Upload failed: ${err.message}`;
+    console.error(err);
+  } finally {
+    if (uploadBtn) {
+      uploadBtn.disabled = false;
+    }
+  }
 }
 
 function sessionHasLapData(s) {
