@@ -6,6 +6,7 @@ The goal of this project is to design and implement a software platform capable 
 
 The system processes telemetry datasets (e.g. CSV files) and provides visualization and analytical tools to better understand lap performance.
 
+Public URL: https://telemetry-analyzer.vercel.app/web/index.html 
 ---
 
 ## Features
