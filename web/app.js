@@ -9,17 +9,45 @@ const TRACK_CHART_MAX_POINTS = 12_000;
 const DEFAULT_SEGMENT_COUNT = 10;
 
 let speedChart;
-let throttleBrakeChart;
+let throttleChart;
+let brakeChart;
 let gearChart;
 let trackMapChart;
 
-/** @type {{ points: any[], labels: any[], speed: number[], throttle: number[], brake: number[], gear: number[] } | null} */
+/** @type {{ points: any[], labels: any[], speed: number[], throttle: number[], brake: number[], gear: number[], lapBoundaries?: any[] } | null} */
 let fullLapSnapshot = null;
+/** @type {any[]} */
+let currentSessionLaps = [];
+let currentLapIndex = 0;
 /** @type {any[] | null} */
 let segmentMetaList = null;
 let selectedSegmentIndex = null;
 /** "neutral" = equal slices only; "compare" = coloured vs reference lap */
 let segmentDisplayMode = "neutral";
+
+function applyTheme(theme) {
+  const body = document.body;
+  const toggleBtn = document.getElementById("themeToggleBtn");
+  const resolvedTheme = theme === "light" ? "light" : "dark";
+  body.classList.toggle("theme-light", resolvedTheme === "light");
+  if (toggleBtn) {
+    toggleBtn.textContent = resolvedTheme === "light" ? "Dark mode" : "Light mode";
+  }
+  localStorage.setItem("ta-theme", resolvedTheme);
+}
+
+function initThemeToggle() {
+  const savedTheme = localStorage.getItem("ta-theme");
+  applyTheme(savedTheme || "dark");
+  const toggleBtn = document.getElementById("themeToggleBtn");
+  if (!toggleBtn) {
+    return;
+  }
+  toggleBtn.addEventListener("click", () => {
+    const next = document.body.classList.contains("theme-light") ? "dark" : "light";
+    applyTheme(next);
+  });
+}
 
 async function parseJsonResponse(res) {
   const text = await res.text();
@@ -55,6 +83,39 @@ const chartTheme = {
     }
   }
 };
+
+const lapBoundariesPlugin = {
+  id: "lapBoundaries",
+  afterDraw(chart, _args, pluginOptions) {
+    const boundaries = pluginOptions?.boundaries;
+    if (!Array.isArray(boundaries) || boundaries.length === 0) {
+      return;
+    }
+    const xScale = chart.scales?.x;
+    const yScale = chart.scales?.y;
+    if (!xScale || !yScale) {
+      return;
+    }
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 1;
+    for (const boundary of boundaries) {
+      if (!Number.isFinite(boundary.startIndex)) {
+        continue;
+      }
+      const x = xScale.getPixelForValue(boundary.startIndex);
+      ctx.beginPath();
+      ctx.moveTo(x, yScale.top);
+      ctx.lineTo(x, yScale.bottom);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+};
+
+Chart.register(lapBoundariesPlugin);
 
 function downsamplePoints(arr, maxN) {
   if (arr.length <= maxN) {
@@ -342,8 +403,10 @@ function applySegmentFocus(seg) {
   speedChart = drawOrUpdateChart(speedChart, "speedChart", labels, [
     { label: `Speed (km/h) · segment ${seg.index}`, data: speed, borderColor: "#ff3d2e", backgroundColor: "rgba(255,61,46,0.12)", fill: false, tension: 0.15, pointRadius: 0, borderWidth: 2 }
   ]);
-  throttleBrakeChart = drawOrUpdateChart(throttleBrakeChart, "throttleBrakeChart", labels, [
-    { label: "Throttle", data: throttle, borderColor: "#22c55e", tension: 0.15, pointRadius: 0, borderWidth: 2 },
+  throttleChart = drawOrUpdateChart(throttleChart, "throttleChart", labels, [
+    { label: "Throttle", data: throttle, borderColor: "#22c55e", tension: 0.15, pointRadius: 0, borderWidth: 2 }
+  ]);
+  brakeChart = drawOrUpdateChart(brakeChart, "brakeChart", labels, [
     { label: "Brake", data: brake, borderColor: "#ef4444", tension: 0.15, pointRadius: 0, borderWidth: 2 }
   ]);
   gearChart = drawOrUpdateChart(gearChart, "gearChart", labels, [
@@ -359,8 +422,10 @@ function redrawFullLapCharts() {
   speedChart = drawOrUpdateChart(speedChart, "speedChart", labels, [
     { label: "Speed (km/h)", data: speed, borderColor: "#ff3d2e", backgroundColor: "rgba(255,61,46,0.12)", fill: false, tension: 0.15, pointRadius: 0, borderWidth: 2 }
   ]);
-  throttleBrakeChart = drawOrUpdateChart(throttleBrakeChart, "throttleBrakeChart", labels, [
-    { label: "Throttle", data: throttle, borderColor: "#22c55e", tension: 0.15, pointRadius: 0, borderWidth: 2 },
+  throttleChart = drawOrUpdateChart(throttleChart, "throttleChart", labels, [
+    { label: "Throttle", data: throttle, borderColor: "#22c55e", tension: 0.15, pointRadius: 0, borderWidth: 2 }
+  ]);
+  brakeChart = drawOrUpdateChart(brakeChart, "brakeChart", labels, [
     { label: "Brake", data: brake, borderColor: "#ef4444", tension: 0.15, pointRadius: 0, borderWidth: 2 }
   ]);
   gearChart = drawOrUpdateChart(gearChart, "gearChart", labels, [
@@ -440,9 +505,12 @@ async function loadSessions() {
 }
 
 function drawOrUpdateChart(chartRef, canvasId, labels, datasets) {
+  const boundaries = fullLapSnapshot?.lapBoundaries || [];
   if (chartRef) {
     chartRef.data.labels = labels;
     chartRef.data.datasets = datasets;
+    chartRef.options.plugins = chartRef.options.plugins || {};
+    chartRef.options.plugins.lapBoundaries = { boundaries };
     chartRef.update();
     return chartRef;
   }
@@ -450,8 +518,89 @@ function drawOrUpdateChart(chartRef, canvasId, labels, datasets) {
   return new Chart(document.getElementById(canvasId), {
     type: "line",
     data: { labels, datasets },
-    options: chartTheme
+    options: {
+      ...chartTheme,
+      plugins: {
+        ...chartTheme.plugins,
+        lapBoundaries: { boundaries }
+      }
+    }
   });
+}
+
+function buildLapSnapshot(lap) {
+  const points = Array.isArray(lap?.points) ? lap.points : [];
+  const labels = points.map((p, idx) => (Number.isFinite(p.timestamp) ? p.timestamp : idx));
+  const speed = points.map((p) => p.speed);
+  const throttle = points.map((p) => p.throttle);
+  const brake = points.map((p) => p.brake);
+  const gear = points.map((p) => p.gear);
+  return { points, labels, speed, throttle, brake, gear, lapBoundaries: [] };
+}
+
+function formatLapTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return "n/a";
+  }
+  const m = Math.floor(seconds / 60);
+  const s = seconds - m * 60;
+  return `${String(m).padStart(2, "0")}:${s.toFixed(3).padStart(6, "0")}`;
+}
+
+function computeLapDurationSeconds(lap) {
+  const points = Array.isArray(lap?.points) ? lap.points : [];
+  if (points.length < 2) {
+    return NaN;
+  }
+  const t0 = Number(points[0]?.timestamp);
+  const t1 = Number(points[points.length - 1]?.timestamp);
+  if (Number.isFinite(t0) && Number.isFinite(t1) && t1 > t0) {
+    return t1 - t0;
+  }
+  return NaN;
+}
+
+function updateLapToolbar() {
+  const lapSelect = document.getElementById("lapSelect");
+  const lapTimeInfo = document.getElementById("lapTimeInfo");
+  const prevLapBtn = document.getElementById("prevLapBtn");
+  const nextLapBtn = document.getElementById("nextLapBtn");
+  if (!lapSelect || !lapTimeInfo || !prevLapBtn || !nextLapBtn) {
+    return;
+  }
+
+  lapSelect.innerHTML = "";
+  currentSessionLaps.forEach((lap, idx) => {
+    const opt = document.createElement("option");
+    opt.value = String(idx);
+    const lapId = lap.lapId || `lap-${idx + 1}`;
+    opt.textContent = `${lapId} (${idx + 1}/${currentSessionLaps.length})`;
+    lapSelect.appendChild(opt);
+  });
+
+  if (currentSessionLaps.length === 0) {
+    lapTimeInfo.textContent = "Lap time: n/a";
+    prevLapBtn.disabled = true;
+    nextLapBtn.disabled = true;
+    return;
+  }
+
+  lapSelect.value = String(currentLapIndex);
+  const lapDuration = computeLapDurationSeconds(currentSessionLaps[currentLapIndex]);
+  lapTimeInfo.textContent = `Lap time: ${formatLapTime(lapDuration)}`;
+  prevLapBtn.disabled = currentLapIndex <= 0;
+  nextLapBtn.disabled = currentLapIndex >= currentSessionLaps.length - 1;
+}
+
+function renderCurrentLap() {
+  const lap = currentSessionLaps[currentLapIndex];
+  if (!lap) {
+    fullLapSnapshot = null;
+    return;
+  }
+  fullLapSnapshot = buildLapSnapshot(lap);
+  redrawFullLapCharts();
+  updateLapToolbar();
 }
 
 async function loadSelectedSession() {
@@ -465,57 +614,16 @@ async function loadSelectedSession() {
   if (!res.ok) {
     return;
   }
-  const lap = session.laps[0];
-  const trackInfo = document.getElementById("trackInfo");
-
-  if (!lap || !lap.points || lap.points.length === 0) {
-    destroyTrackMapChart();
-    hideSchematic();
+  currentSessionLaps = Array.isArray(session?.laps)
+    ? session.laps.filter((lap) => Array.isArray(lap?.points) && lap.points.length > 0)
+    : [];
+  currentLapIndex = 0;
+  if (!currentSessionLaps.length) {
     fullLapSnapshot = null;
-    if (trackInfo) {
-      trackInfo.textContent = "No lap samples in this session.";
-    }
+    updateLapToolbar();
     return;
   }
-
-  const points = lap.points;
-  const labels = points.map((p) => p.timestamp);
-  const speed = points.map((p) => p.speed);
-  const throttle = points.map((p) => p.throttle);
-  const brake = points.map((p) => p.brake);
-  const gear = points.map((p) => p.gear);
-
-  fullLapSnapshot = { points, labels, speed, throttle, brake, gear };
-
-  const gpsRaw = points
-    .filter((p) => isPlausibleGps(p.latitude, p.longitude))
-    .map((p) => ({ x: p.longitude, y: p.latitude }));
-  const gpsPoints = downsamplePoints(gpsRaw, TRACK_CHART_MAX_POINTS);
-
-  const distRaw = points
-    .filter((p) => Number.isFinite(p.distanceMeters))
-    .map((p) => ({ x: p.distanceMeters, y: p.speed }))
-    .sort((a, b) => a.x - b.x);
-  const distPoints = downsamplePoints(distRaw, TRACK_CHART_MAX_POINTS);
-
-  redrawFullLapCharts();
-
-  if (!trackInfo) {
-    return;
-  }
-
-  if (gpsPoints.length > 1) {
-    drawTrackScatter(gpsPoints, "Longitude (°)", "Latitude (°)", "GPS path");
-    trackInfo.textContent = `GPS path: ${gpsPoints.length} points plotted${gpsRaw.length > gpsPoints.length ? " (downsampled)" : ""}.`;
-  } else if (distPoints.length > 1) {
-    drawTrackScatter(distPoints, "Distance (m)", "Speed (km/h)", "Speed vs distance");
-    trackInfo.textContent = `No usable GPS; using Distance (m): ${distPoints.length} points${distRaw.length > distPoints.length ? " (downsampled)" : ""}. This is not a geographic map — speed vs position along the lap.`;
-  } else {
-    destroyTrackMapChart();
-    trackInfo.textContent = "No plausible GPS and no per-sample Distance — the scatter chart is empty. OpenF1 laps files are usually lap-level only. Export GPS or Distance in your logger CSV for a path plot.";
-  }
-
-  showSchematicWithSegments(buildNeutralSegments(DEFAULT_SEGMENT_COUNT), false);
+  renderCurrentLap();
 }
 
 async function compareSessions() {
@@ -569,9 +677,48 @@ document.getElementById("uploadBtn").addEventListener("click", uploadTelemetry);
 document.getElementById("refreshSessions").addEventListener("click", loadSessions);
 document.getElementById("loadSession").addEventListener("click", loadSelectedSession);
 document.getElementById("runCompare").addEventListener("click", compareSessions);
-document.getElementById("loadSegmentDeltas").addEventListener("click", loadSegmentDeltasOnMap);
-document.getElementById("clearSegmentFocus").addEventListener("click", () => {
-  redrawFullLapCharts();
-});
+const lapSelectEl = document.getElementById("lapSelect");
+if (lapSelectEl) {
+  lapSelectEl.addEventListener("change", (event) => {
+    const idx = Number(event.target.value);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= currentSessionLaps.length) {
+      return;
+    }
+    currentLapIndex = idx;
+    renderCurrentLap();
+  });
+}
+const prevLapBtn = document.getElementById("prevLapBtn");
+if (prevLapBtn) {
+  prevLapBtn.addEventListener("click", () => {
+    if (currentLapIndex <= 0) {
+      return;
+    }
+    currentLapIndex -= 1;
+    renderCurrentLap();
+  });
+}
+const nextLapBtn = document.getElementById("nextLapBtn");
+if (nextLapBtn) {
+  nextLapBtn.addEventListener("click", () => {
+    if (currentLapIndex >= currentSessionLaps.length - 1) {
+      return;
+    }
+    currentLapIndex += 1;
+    renderCurrentLap();
+  });
+}
+const loadSegmentDeltasBtn = document.getElementById("loadSegmentDeltas");
+if (loadSegmentDeltasBtn) {
+  loadSegmentDeltasBtn.addEventListener("click", loadSegmentDeltasOnMap);
+}
+const clearSegmentFocusBtn = document.getElementById("clearSegmentFocus");
+if (clearSegmentFocusBtn) {
+  clearSegmentFocusBtn.addEventListener("click", () => {
+    redrawFullLapCharts();
+  });
+}
 
 loadSessions();
+updateLapToolbar();
+initThemeToggle();

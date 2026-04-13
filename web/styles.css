@@ -14,6 +14,20 @@
   --font-display: "Rajdhani", system-ui, sans-serif;
 }
 
+body.theme-light {
+  --bg-deep: #f3f6fb;
+  --bg-panel: #ffffff;
+  --bg-panel-2: #f8fbff;
+  --border: rgba(15, 23, 42, 0.12);
+  --text: #0f172a;
+  --muted: #475569;
+  --accent: #d62f22;
+  --accent-dim: #b42318;
+  --accent-glow: rgba(214, 47, 34, 0.2);
+  --stripe-1: #edf2f7;
+  --stripe-2: #e2e8f0;
+}
+
 *,
 *::before,
 *::after {
@@ -34,9 +48,10 @@ body {
 }
 
 .page {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 0 1.25rem 3rem;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0 1.5rem 3rem;
 }
 
 /* Racing header */
@@ -67,6 +82,12 @@ body {
 .hero-inner {
   position: relative;
   z-index: 1;
+}
+
+.top-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
 }
 
 .hero-badge {
@@ -114,6 +135,10 @@ body {
   border: 1px solid var(--border);
   background: linear-gradient(145deg, var(--bg-panel) 0%, var(--bg-panel-2) 100%);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+body.theme-light .panel {
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
 }
 
 .panel-title {
@@ -269,6 +294,10 @@ body {
   gap: 1rem;
 }
 
+.chart-grid-single {
+  grid-template-columns: 1fr !important;
+}
+
 @media (min-width: 720px) {
   .chart-grid {
     grid-template-columns: 1fr 1fr;
@@ -284,6 +313,40 @@ body {
   border-radius: 8px;
   background: #0a0e14;
   border: 1px solid var(--border);
+}
+
+body.theme-light .chart-wrap {
+  background: #ffffff;
+}
+
+.chart-help {
+  margin: 0 0 0.6rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: #9fb0c4;
+}
+
+.chart-help strong {
+  color: #cbd5e1;
+}
+
+.lap-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+}
+
+.lap-toolbar .select {
+  min-width: 160px;
+  max-width: 280px;
+  flex: 0 1 280px;
+}
+
+.lap-time-info {
+  font-size: 0.9rem;
+  color: #cbd5e1;
 }
 
 .chart-wrap-wide {
@@ -306,6 +369,11 @@ body {
   border-radius: 8px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+body.theme-light .code-out {
+  color: #334155;
+  background: #f8fafc;
 }
 
 .footer {
