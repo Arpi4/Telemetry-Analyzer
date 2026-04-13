@@ -269,6 +269,10 @@ body {
   gap: 1rem;
 }
 
+.chart-grid-single {
+  grid-template-columns: 1fr !important;
+}
+
 @media (min-width: 720px) {
   .chart-grid {
     grid-template-columns: 1fr 1fr;
@@ -284,6 +288,17 @@ body {
   border-radius: 8px;
   background: #0a0e14;
   border: 1px solid var(--border);
+}
+
+.chart-help {
+  margin: 0 0 0.6rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: #9fb0c4;
+}
+
+.chart-help strong {
+  color: #cbd5e1;
 }
 
 .chart-wrap-wide {

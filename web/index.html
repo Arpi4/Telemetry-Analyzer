@@ -37,7 +37,7 @@
 
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Sessions</h2>
-        <p class="panel-help">Uploaded runs listed here. Pick one and <strong>Load session</strong> to fill the charts and track views. Use <strong>Refresh</strong> after a new upload.</p>
+        <p class="panel-help">Uploaded runs listed here. Pick one and <strong>Load session</strong> to fill the telemetry charts. Use <strong>Refresh</strong> after a new upload.</p>
         <div class="row">
           <button type="button" class="btn btn-ghost" id="refreshSessions">Refresh</button>
           <select id="sessionSelect" class="select"></select>
@@ -47,27 +47,23 @@
 
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Lap charts</h2>
-        <p class="panel-help">The horizontal axis is usually <strong>time</strong> or <strong>sample index</strong>, depending on the file. <strong>Speed</strong> is vehicle speed (typically km/h). <strong>Throttle / brake</strong> show pedal use (percent or estimated). <strong>Gear</strong> is the engaged gear. Together they show where you accelerate, brake, and how pace changes around the lap. Click a <strong>segment</strong> on the schematic map below to zoom the charts to that part of the lap.</p>
-        <div class="chart-grid">
-          <div class="chart-wrap"><canvas id="speedChart"></canvas></div>
-          <div class="chart-wrap"><canvas id="throttleBrakeChart"></canvas></div>
-          <div class="chart-wrap"><canvas id="gearChart"></canvas></div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2 class="panel-title"><span class="panel-accent"></span> Track &amp; segments</h2>
-        <p class="panel-help"><strong>GPS plot</strong>: when the file contains plausible latitude/longitude, the scatter chart shows the path on the map plane. MoTeC fields named <strong>G_LAT / G_LON</strong> are often <em>not</em> GPS (they can be lateral/longitudinal acceleration channels), so they are ignored for mapping. <strong>Distance fallback</strong>: if there is no usable GPS but there is a <strong>Distance</strong> channel (metres travelled), the wide chart shows speed versus distance along the lap — not geography, but useful for pace vs position. <strong>Schematic segment map</strong>: the SVG is a fixed outline (Monza-style) for placing numbered segments. It is <em>not</em> your real GPS trace. Numbers line up with equal parts of the lap (by distance when available, otherwise by sample index). After you load <strong>segment deltas</strong> from two sessions, marker colours show where the compare lap is slower (orange) or faster (green) than the reference in each segment; grey means roughly matched. Values are approximate segment deltas in seconds (positive = you lose time vs reference in that segment).</p>
-        <p id="trackInfo" class="panel-hint">Select a session, then Load session.</p>
-        <div class="chart-wrap chart-wrap-wide"><canvas id="trackMapChart"></canvas></div>
-        <div id="trackSchematicWrap" class="track-schematic-wrap" hidden>
-          <svg id="trackSchematicSvg" class="track-schematic-svg" viewBox="0 0 100 100" role="img" aria-label="Schematic lap segments">
-            <path id="trackSchematicPath" class="track-schematic-path" d="" />
-            <g id="trackSegmentMarkers"></g>
-          </svg>
-          <p id="trackSegmentLegend" class="panel-hint"></p>
-          <div class="track-schematic-actions">
-            <button type="button" class="btn btn-ghost" id="clearSegmentFocus">Show full lap</button>
+        <p class="panel-help">Each channel is shown on a separate chart. The dashed vertical lines mark where each lap starts and ends in the loaded data.</p>
+        <div class="chart-grid chart-grid-single">
+          <div class="chart-wrap">
+            <p class="chart-help"><strong>Speed:</strong> shows how fast the car is moving. High peaks are straights, and deep drops are braking zones before corners.</p>
+            <canvas id="speedChart"></canvas>
+          </div>
+          <div class="chart-wrap">
+            <p class="chart-help"><strong>Throttle:</strong> shows accelerator pedal usage in percent. Near 100% means full power, near 0% means you are lifting off.</p>
+            <canvas id="throttleChart"></canvas>
+          </div>
+          <div class="chart-wrap">
+            <p class="chart-help"><strong>Brake:</strong> shows brake pedal pressure/usage. Spikes mean braking events and help identify where you brake too early or too late.</p>
+            <canvas id="brakeChart"></canvas>
+          </div>
+          <div class="chart-wrap">
+            <p class="chart-help"><strong>Gear:</strong> shows the selected gear over the lap. It helps you see shift timing and whether gear choice is consistent corner by corner.</p>
+            <canvas id="gearChart"></canvas>
           </div>
         </div>
       </section>
@@ -93,7 +89,6 @@
         </div>
         <div class="row" style="margin-top: 0.75rem">
           <button type="button" class="btn btn-primary" id="runCompare">Compare laps</button>
-          <button type="button" class="btn btn-ghost" id="loadSegmentDeltas">Load segment deltas on map</button>
         </div>
         <pre id="compareResult" class="code-out"></pre>
       </section>
@@ -105,7 +100,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="track-segments.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
