@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
  */
 public final class AdaptedCsvProfiles {
 
-    private static final int MAX_MOTEC_POINTS_STORED = 35_000;
+    private static final int MAX_MOTEC_POINTS_STORED = 200_000;
 
     /** OpenF1: missing closing quote after ISO timestamp with numeric timezone offset. */
     private static final Pattern OPENF1_LEADING_DATE_OFFSET = Pattern.compile(
