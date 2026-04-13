@@ -14,9 +14,6 @@
     <header class="hero">
       <div class="hero-stripes" aria-hidden="true"></div>
       <div class="hero-inner">
-        <div class="top-actions">
-          <button type="button" class="btn btn-ghost" id="themeToggleBtn" aria-label="Toggle dark mode">Light mode</button>
-        </div>
         <p class="hero-badge">Live telemetry</p>
         <h1 class="hero-title">Telemetry Analyzer</h1>
         <p class="hero-tagline">CSV · MoTeC · OpenF1 · lap compare</p>
@@ -79,7 +76,7 @@
 
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Lap comparison</h2>
-        <p class="panel-help">Compare the <strong>same lap id</strong> (default <code>lap-1</code>) between two uploaded sessions for a quick summary. Use <strong>Load segment deltas on map</strong> after choosing reference and compare sessions to colour the schematic markers and show per-segment deltas. The segment model uses average speeds in each slice; it is a coaching-style hint, not a professional timing loop.</p>
+        <p class="panel-help">Compare selected laps between two uploaded sessions. The summary shows lap-level difference, and the chart overlays both speed traces with different colors.</p>
         <div class="compare-grid">
           <label class="field">
             <span class="field-label">Reference session</span>
@@ -92,12 +89,20 @@
         </div>
         <div class="compare-lap-row">
           <label class="field">
-            <span class="field-label">Lap id (both sessions)</span>
-            <input type="text" id="compareLapId" class="select" style="min-width: 8rem" value="lap-1" />
+            <span class="field-label">Reference lap</span>
+            <select id="refLapSelect" class="select" style="min-width: 10rem"></select>
+          </label>
+          <label class="field">
+            <span class="field-label">Compare lap</span>
+            <select id="cmpLapSelect" class="select" style="min-width: 10rem"></select>
           </label>
         </div>
         <div class="row" style="margin-top: 0.75rem">
           <button type="button" class="btn btn-primary" id="runCompare">Compare laps</button>
+        </div>
+        <div class="chart-wrap chart-wrap-wide" style="margin-top: 0.9rem">
+          <p class="chart-help"><strong>Speed overlay:</strong> same chart, two laps. Red = reference, cyan = compare.</p>
+          <canvas id="compareSpeedChart"></canvas>
         </div>
         <pre id="compareResult" class="code-out"></pre>
       </section>
