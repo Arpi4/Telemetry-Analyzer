@@ -13,6 +13,7 @@ let throttleChart;
 let brakeChart;
 let gearChart;
 let trackMapChart;
+let compareSpeedChart;
 
 /** @type {{ points: any[], labels: any[], speed: number[], throttle: number[], brake: number[], gear: number[], lapBoundaries?: any[] } | null} */
 let fullLapSnapshot = null;
@@ -24,30 +25,7 @@ let segmentMetaList = null;
 let selectedSegmentIndex = null;
 /** "neutral" = equal slices only; "compare" = coloured vs reference lap */
 let segmentDisplayMode = "neutral";
-
-function applyTheme(theme) {
-  const body = document.body;
-  const toggleBtn = document.getElementById("themeToggleBtn");
-  const resolvedTheme = theme === "light" ? "light" : "dark";
-  body.classList.toggle("theme-light", resolvedTheme === "light");
-  if (toggleBtn) {
-    toggleBtn.textContent = resolvedTheme === "light" ? "Dark mode" : "Light mode";
-  }
-  localStorage.setItem("ta-theme", resolvedTheme);
-}
-
-function initThemeToggle() {
-  const savedTheme = localStorage.getItem("ta-theme");
-  applyTheme(savedTheme || "dark");
-  const toggleBtn = document.getElementById("themeToggleBtn");
-  if (!toggleBtn) {
-    return;
-  }
-  toggleBtn.addEventListener("click", () => {
-    const next = document.body.classList.contains("theme-light") ? "dark" : "light";
-    applyTheme(next);
-  });
-}
+const sessionDetailsCache = new Map();
 
 async function parseJsonResponse(res) {
   const text = await res.text();
@@ -476,7 +454,7 @@ async function uploadTelemetry() {
 }
 
 function sessionHasLapData(s) {
-  return Array.isArray(s.laps) && s.laps.some((lap) => lap.points && lap.points.length > 0);
+  return Number.isFinite(s?.lapCount) ? s.lapCount > 0 : (Array.isArray(s?.lapIds) && s.lapIds.length > 0);
 }
 
 async function loadSessions() {
@@ -493,7 +471,7 @@ async function loadSessions() {
     list.forEach((s) => {
       const opt = document.createElement("option");
       opt.value = s.sessionId;
-      opt.textContent = `${s.sessionId} (${s.sourceFile})`;
+      opt.textContent = `${s.sessionId} (${s.sourceFile}) · laps: ${s.lapCount ?? 0}`;
       select.appendChild(opt);
     });
   };
@@ -502,15 +480,43 @@ async function loadSessions() {
   const comparable = sessions.filter(sessionHasLapData);
   fillSelect("refSession", comparable);
   fillSelect("cmpSession", comparable);
+  await refreshCompareLapSelectors();
 }
 
-function drawOrUpdateChart(chartRef, canvasId, labels, datasets) {
-  const boundaries = fullLapSnapshot?.lapBoundaries || [];
+function buildChartOptions(showLapBoundaries, boundaries) {
+  const options = {
+    responsive: true,
+    maintainAspectRatio: true,
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: {
+        display: true,
+        labels: { color: "#e8edf4", font: { size: 12 } }
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color: "#8b9cb3", maxTicksLimit: 12 },
+        grid: { color: "rgba(255,255,255,0.06)" }
+      },
+      y: {
+        ticks: { color: "#8b9cb3" },
+        grid: { color: "rgba(255,255,255,0.06)" }
+      }
+    }
+  };
+  if (showLapBoundaries) {
+    options.plugins.lapBoundaries = { boundaries };
+  }
+  return options;
+}
+
+function drawOrUpdateChart(chartRef, canvasId, labels, datasets, showLapBoundaries = true) {
+  const boundaries = showLapBoundaries ? (fullLapSnapshot?.lapBoundaries || []) : [];
   if (chartRef) {
     chartRef.data.labels = labels;
     chartRef.data.datasets = datasets;
-    chartRef.options.plugins = chartRef.options.plugins || {};
-    chartRef.options.plugins.lapBoundaries = { boundaries };
+    chartRef.options = buildChartOptions(showLapBoundaries, boundaries);
     chartRef.update();
     return chartRef;
   }
@@ -518,13 +524,7 @@ function drawOrUpdateChart(chartRef, canvasId, labels, datasets) {
   return new Chart(document.getElementById(canvasId), {
     type: "line",
     data: { labels, datasets },
-    options: {
-      ...chartTheme,
-      plugins: {
-        ...chartTheme.plugins,
-        lapBoundaries: { boundaries }
-      }
-    }
+    options: buildChartOptions(showLapBoundaries, boundaries)
   });
 }
 
@@ -626,10 +626,97 @@ async function loadSelectedSession() {
   renderCurrentLap();
 }
 
+async function getSessionDetails(sessionId) {
+  if (!sessionId) {
+    return null;
+  }
+  if (sessionDetailsCache.has(sessionId)) {
+    return sessionDetailsCache.get(sessionId);
+  }
+  const res = await fetch(`${apiBase}/sessions/${encodeURIComponent(sessionId)}`);
+  const session = await parseJsonResponse(res);
+  if (!res.ok || !session) {
+    return null;
+  }
+  sessionDetailsCache.set(sessionId, session);
+  return session;
+}
+
+function fillLapSelect(selectId, laps) {
+  const select = document.getElementById(selectId);
+  if (!select) {
+    return;
+  }
+  select.innerHTML = "";
+  laps.forEach((lap, idx) => {
+    const lapId = lap?.lapId || `lap-${idx + 1}`;
+    const opt = document.createElement("option");
+    opt.value = lapId;
+    opt.textContent = lapId;
+    select.appendChild(opt);
+  });
+}
+
+async function refreshCompareLapSelectors() {
+  const refSessionId = document.getElementById("refSession")?.value;
+  const cmpSessionId = document.getElementById("cmpSession")?.value;
+
+  const refSession = await getSessionDetails(refSessionId);
+  const cmpSession = await getSessionDetails(cmpSessionId);
+  const refLaps = Array.isArray(refSession?.laps) ? refSession.laps.filter((l) => Array.isArray(l?.points) && l.points.length > 0) : [];
+  const cmpLaps = Array.isArray(cmpSession?.laps) ? cmpSession.laps.filter((l) => Array.isArray(l?.points) && l.points.length > 0) : [];
+  fillLapSelect("refLapSelect", refLaps);
+  fillLapSelect("cmpLapSelect", cmpLaps);
+}
+
+function downsampleSeries(values, maxLen) {
+  if (!Array.isArray(values) || values.length <= maxLen) {
+    return values || [];
+  }
+  const step = Math.ceil(values.length / maxLen);
+  const out = [];
+  for (let i = 0; i < values.length; i += step) {
+    out.push(values[i]);
+  }
+  return out;
+}
+
+function renderCompareSpeedChart(refLap, cmpLap) {
+  const refSpeed = downsampleSeries(refLap.points.map((p) => Number(p.speed) || 0), TRACK_CHART_MAX_POINTS);
+  const cmpSpeed = downsampleSeries(cmpLap.points.map((p) => Number(p.speed) || 0), TRACK_CHART_MAX_POINTS);
+  const n = Math.min(refSpeed.length, cmpSpeed.length);
+  const labels = Array.from({ length: n }, (_, i) => String(i));
+  const refSeries = refSpeed.slice(0, n);
+  const cmpSeries = cmpSpeed.slice(0, n);
+  compareSpeedChart = drawOrUpdateChart(compareSpeedChart, "compareSpeedChart", labels, [
+    {
+      label: `Reference speed (${refLap.lapId})`,
+      data: refSeries,
+      borderColor: "#ff3d2e",
+      backgroundColor: "rgba(255,61,46,0.12)",
+      fill: false,
+      tension: 0.15,
+      pointRadius: 0,
+      borderWidth: 2
+    },
+    {
+      label: `Compare speed (${cmpLap.lapId})`,
+      data: cmpSeries,
+      borderColor: "#22d3ee",
+      backgroundColor: "rgba(34,211,238,0.10)",
+      fill: false,
+      tension: 0.15,
+      pointRadius: 0,
+      borderWidth: 2
+    }
+  ], false);
+}
+
 async function compareSessions() {
   const ref = document.getElementById("refSession").value;
   const cmp = document.getElementById("cmpSession").value;
-  const lapId = (document.getElementById("compareLapId")?.value || "lap-1").trim() || "lap-1";
+  const refLapId = document.getElementById("refLapSelect")?.value || "lap-1";
+  const cmpLapId = document.getElementById("cmpLapSelect")?.value || "lap-1";
   const out = document.getElementById("compareResult");
 
   if (!ref || !cmp) {
@@ -637,21 +724,41 @@ async function compareSessions() {
     return;
   }
 
+  const refSession = await getSessionDetails(ref);
+  const cmpSession = await getSessionDetails(cmp);
+  const refLap = Array.isArray(refSession?.laps) ? refSession.laps.find((lap) => lap.lapId === refLapId) : null;
+  const cmpLap = Array.isArray(cmpSession?.laps) ? cmpSession.laps.find((lap) => lap.lapId === cmpLapId) : null;
+  if (!refLap || !cmpLap) {
+    out.textContent = "Selected lap not found in one or both sessions.";
+    return;
+  }
+
   const res = await fetch(
-    `${apiBase}/compare?referenceSessionId=${encodeURIComponent(ref)}&compareSessionId=${encodeURIComponent(cmp)}&lapId=${encodeURIComponent(lapId)}`
+    `${apiBase}/compare?referenceSessionId=${encodeURIComponent(ref)}&compareSessionId=${encodeURIComponent(cmp)}&referenceLapId=${encodeURIComponent(refLapId)}&compareLapId=${encodeURIComponent(cmpLapId)}`
   );
   const data = await parseJsonResponse(res);
   if (!res.ok) {
     out.textContent = JSON.stringify(data ?? { error: res.status }, null, 2);
     return;
   }
-  out.textContent = JSON.stringify(data, null, 2);
+  renderCompareSpeedChart(refLap, cmpLap);
+  const avgDelta = Number(data?.delta?.avgSpeedDelta);
+  const comparedSamples = Number(data?.delta?.comparedSamples);
+  const direction = Number.isFinite(avgDelta)
+    ? (avgDelta > 0 ? "A compare kor atlagosan gyorsabb." : (avgDelta < 0 ? "A compare kor atlagosan lassabb." : "A ket kor atlagsebessege megegyezik."))
+    : "Atlagsebesseg delta nem szamolhato.";
+  out.textContent =
+    `Referencia kor: ${data?.referenceLapId || refLapId}\n` +
+    `Compare kor: ${data?.compareLapId || cmpLapId}\n` +
+    `Atlagsebesseg elteres: ${Number.isFinite(avgDelta) ? avgDelta.toFixed(3) : "n/a"} km/h\n` +
+    `Osszehasonlitott mintak: ${Number.isFinite(comparedSamples) ? comparedSamples : "n/a"}\n` +
+    `${direction}`;
 }
 
 async function loadSegmentDeltasOnMap() {
   const ref = document.getElementById("refSession").value;
   const cmp = document.getElementById("cmpSession").value;
-  const lapId = (document.getElementById("compareLapId")?.value || "lap-1").trim() || "lap-1";
+  const lapId = document.getElementById("refLapSelect")?.value || "lap-1";
   const out = document.getElementById("compareResult");
 
   if (!ref || !cmp) {
@@ -677,6 +784,14 @@ document.getElementById("uploadBtn").addEventListener("click", uploadTelemetry);
 document.getElementById("refreshSessions").addEventListener("click", loadSessions);
 document.getElementById("loadSession").addEventListener("click", loadSelectedSession);
 document.getElementById("runCompare").addEventListener("click", compareSessions);
+const refSessionSelect = document.getElementById("refSession");
+if (refSessionSelect) {
+  refSessionSelect.addEventListener("change", refreshCompareLapSelectors);
+}
+const cmpSessionSelect = document.getElementById("cmpSession");
+if (cmpSessionSelect) {
+  cmpSessionSelect.addEventListener("change", refreshCompareLapSelectors);
+}
 const lapSelectEl = document.getElementById("lapSelect");
 if (lapSelectEl) {
   lapSelectEl.addEventListener("change", (event) => {
@@ -721,4 +836,3 @@ if (clearSegmentFocusBtn) {
 
 loadSessions();
 updateLapToolbar();
-initThemeToggle();

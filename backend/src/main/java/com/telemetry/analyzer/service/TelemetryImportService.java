@@ -34,7 +34,14 @@ public class TelemetryImportService {
             return new ImportResult(null, report);
         }
 
-        SessionData session = parser.parse(file.getBytes(), fileName, report);
+        SessionData session;
+        try {
+            session = parser.parse(file.getBytes(), fileName, report);
+        } catch (Throwable t) {
+            report.addError("Import failed unexpectedly: " + t.getClass().getSimpleName()
+                    + (t.getMessage() == null ? "" : " - " + t.getMessage()));
+            return new ImportResult(null, report);
+        }
         if (session == null) {
             return new ImportResult(null, report);
         }

@@ -5,8 +5,12 @@ import com.telemetry.analyzer.domain.LapData;
 import com.telemetry.analyzer.domain.SessionData;
 import com.telemetry.analyzer.domain.TelemetryPoint;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.StringReader;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -79,72 +83,96 @@ public final class AdaptedCsvProfiles {
     }
 
     public static SessionData parseMoTeCWorkbook(String text, String sourceFile, ImportReport report) {
-        List<String> lines = text.lines().toList();
-        int headerIdx = findMotecChannelHeaderLineIndex(lines);
-        if (headerIdx < 0) {
-            report.addError("MoTeC CSV: could not find channel header row (Time, Speed, Throttle, Brake, Gear).");
-            return emptySession(sourceFile);
-        }
-
-        List<String> columnNames = Rfc4180CsvLineSplitter.split(lines.get(headerIdx).trim(), ',');
-        columnNames = trimAll(columnNames);
-        columnNames = dedupeColumnNames(columnNames);
-
-        int dataStart = headerIdx + 1;
-        while (dataStart < lines.size() && isMotecUnitRow(lines.get(dataStart))) {
-            dataStart++;
-        }
-
-        int idxTime = indexOfName(columnNames, "time");
-        int idxSpeed = indexOfName(columnNames, "speed");
-        int idxThrottle = indexOfName(columnNames, "throttle");
-        int idxBrake = indexOfName(columnNames, "brake");
-        int idxGear = indexOfName(columnNames, "gear");
-        int idxDist = indexOfName(columnNames, "distance");
-        int idxGpsLat = findGpsLatitudeColumnIndex(columnNames);
-        int idxGpsLon = findGpsLongitudeColumnIndex(columnNames);
-        if (idxSpeed < 0 || idxThrottle < 0 || idxBrake < 0 || idxGear < 0) {
-            report.addError("MoTeC CSV: missing Speed / Throttle / Brake / Gear columns.");
-            return emptySession(sourceFile);
-        }
-
-        int minCells = Math.max(Math.max(idxSpeed, idxThrottle), Math.max(idxBrake, idxGear)) + 1;
+        List<Double> beaconMarkersSeconds = new ArrayList<>();
+        List<String> columnNames = null;
+        int idxTime = -1;
+        int idxSpeed = -1;
+        int idxThrottle = -1;
+        int idxBrake = -1;
+        int idxGear = -1;
+        int idxDist = -1;
+        int idxGpsLat = -1;
+        int idxGpsLon = -1;
+        int minCells = -1;
 
         List<TelemetryPoint> points = new ArrayList<>();
         int skipped = 0;
         boolean truncated = false;
-        for (int i = dataStart; i < lines.size(); i++) {
-            if (points.size() >= MAX_MOTEC_POINTS_STORED) {
-                truncated = true;
-                break;
-            }
-            String rawLine = lines.get(i).trim();
-            if (rawLine.isEmpty()) {
-                continue;
-            }
-            try {
-                List<String> cells = Rfc4180CsvLineSplitter.split(rawLine, ',');
-                cells = trimAll(cells);
-                if (cells.size() < minCells) {
-                    skipped++;
+
+        try (BufferedReader reader = new BufferedReader(new StringReader(text))) {
+            String line;
+            boolean readingData = false;
+            while ((line = reader.readLine()) != null) {
+                String rawLine = line.trim();
+                if (rawLine.isEmpty()) {
                     continue;
                 }
-                while (cells.size() < columnNames.size()) {
-                    cells.add("");
+
+                if (!readingData) {
+                    beaconMarkersSeconds.addAll(parseBeaconMarkersFromLine(rawLine));
+                    if (!isMotecHeaderCandidate(rawLine)) {
+                        continue;
+                    }
+                    columnNames = Rfc4180CsvLineSplitter.split(rawLine, ',');
+                    columnNames = trimAll(columnNames);
+                    columnNames = dedupeColumnNames(columnNames);
+
+                    idxTime = indexOfName(columnNames, "time");
+                    idxSpeed = indexOfName(columnNames, "speed");
+                    idxThrottle = indexOfName(columnNames, "throttle");
+                    idxBrake = indexOfName(columnNames, "brake");
+                    idxGear = indexOfName(columnNames, "gear");
+                    idxDist = indexOfName(columnNames, "distance");
+                    idxGpsLat = findGpsLatitudeColumnIndex(columnNames);
+                    idxGpsLon = findGpsLongitudeColumnIndex(columnNames);
+                    if (idxSpeed < 0 || idxThrottle < 0 || idxBrake < 0 || idxGear < 0) {
+                        report.addError("MoTeC CSV: missing Speed / Throttle / Brake / Gear columns.");
+                        return emptySession(sourceFile);
+                    }
+                    minCells = Math.max(Math.max(idxSpeed, idxThrottle), Math.max(idxBrake, idxGear)) + 1;
+                    readingData = true;
+                    continue;
                 }
-                double t = idxTime >= 0 ? CsvTelemetryParser.parseDoubleLoose(cells.get(idxTime)) : points.size() * 0.01;
-                double speed = CsvTelemetryParser.parseDoubleLoose(cells.get(idxSpeed));
-                double throttle = CsvTelemetryParser.parseDoubleLoose(cells.get(idxThrottle));
-                double brake = CsvTelemetryParser.parseDoubleLoose(cells.get(idxBrake));
-                String gearCell = cells.get(idxGear).replace("\"", "");
-                int gear = parseGearCell(gearCell);
-                Double lat = parseGeoLat(cells, idxGpsLat);
-                Double lon = parseGeoLon(cells, idxGpsLon);
-                Double dist = idxDist >= 0 ? parseOptionalDoubleCell(cells, idxDist) : null;
-                points.add(new TelemetryPoint(t, speed, throttle, brake, gear, lat, lon, dist));
-            } catch (Exception ex) {
-                skipped++;
+
+                if (isMotecUnitRow(rawLine)) {
+                    continue;
+                }
+                if (points.size() >= MAX_MOTEC_POINTS_STORED) {
+                    truncated = true;
+                    break;
+                }
+                try {
+                    List<String> cells = Rfc4180CsvLineSplitter.split(rawLine, ',');
+                    cells = trimAll(cells);
+                    if (cells.size() < minCells) {
+                        skipped++;
+                        continue;
+                    }
+                    while (cells.size() < columnNames.size()) {
+                        cells.add("");
+                    }
+                    double t = idxTime >= 0 ? CsvTelemetryParser.parseDoubleLoose(cells.get(idxTime)) : points.size() * 0.01;
+                    double speed = CsvTelemetryParser.parseDoubleLoose(cells.get(idxSpeed));
+                    double throttle = CsvTelemetryParser.parseDoubleLoose(cells.get(idxThrottle));
+                    double brake = CsvTelemetryParser.parseDoubleLoose(cells.get(idxBrake));
+                    String gearCell = cells.get(idxGear).replace("\"", "");
+                    int gear = parseGearCell(gearCell);
+                    Double lat = parseGeoLat(cells, idxGpsLat);
+                    Double lon = parseGeoLon(cells, idxGpsLon);
+                    Double dist = idxDist >= 0 ? parseOptionalDoubleCell(cells, idxDist) : null;
+                    points.add(new TelemetryPoint(t, speed, throttle, brake, gear, lat, lon, dist));
+                } catch (Exception ex) {
+                    skipped++;
+                }
             }
+        } catch (IOException ex) {
+            report.addError("MoTeC CSV read failed: " + ex.getMessage());
+            return emptySession(sourceFile);
+        }
+
+        if (columnNames == null) {
+            report.addError("MoTeC CSV: could not find channel header row (Time, Speed, Throttle, Brake, Gear).");
+            return emptySession(sourceFile);
         }
 
         if (truncated) {
@@ -155,13 +183,99 @@ public final class AdaptedCsvProfiles {
             report.addWarning("MoTeC CSV: skipped " + skipped + " rows.");
         }
         report.addWarning("Parsed channel-row CSV (MoTeC workbook or compatible).");
+        List<LapData> laps = splitPointsIntoLapsByBeaconMarkers(points, beaconMarkersSeconds);
+        if (laps.size() > 1) {
+            report.addWarning("Detected " + laps.size() + " laps using MoTeC beacon markers.");
+        }
 
         return new SessionData(
                 buildSessionId(sourceFile),
                 sourceFile,
                 Instant.now(),
-                List.of(new LapData("lap-1", points))
+                laps
         );
+    }
+
+    private static List<LapData> splitPointsIntoLapsByBeaconMarkers(List<TelemetryPoint> points, List<Double> beaconMarkersSeconds) {
+        if (points.isEmpty()) {
+            return List.of(new LapData("lap-1", List.of()));
+        }
+        if (beaconMarkersSeconds.isEmpty()) {
+            return List.of(new LapData("lap-1", points));
+        }
+
+        List<LapData> laps = new ArrayList<>();
+        int startIdx = 0;
+        int lapNo = 1;
+
+        for (double marker : beaconMarkersSeconds) {
+            int markerIdx = firstIndexAtOrAfter(points, marker);
+            if (markerIdx <= startIdx || markerIdx > points.size()) {
+                continue;
+            }
+            List<TelemetryPoint> lapPoints = points.subList(startIdx, markerIdx);
+            if (!lapPoints.isEmpty()) {
+                laps.add(new LapData("lap-" + lapNo, lapPoints));
+                lapNo++;
+            }
+            startIdx = markerIdx;
+        }
+
+        if (startIdx < points.size()) {
+            List<TelemetryPoint> lapPoints = points.subList(startIdx, points.size());
+            if (!lapPoints.isEmpty()) {
+                laps.add(new LapData("lap-" + lapNo, lapPoints));
+            }
+        }
+
+        return laps.isEmpty() ? List.of(new LapData("lap-1", points)) : laps;
+    }
+
+    private static int firstIndexAtOrAfter(List<TelemetryPoint> points, double markerSeconds) {
+        for (int i = 0; i < points.size(); i++) {
+            if (points.get(i).timestamp() >= markerSeconds) {
+                return i;
+            }
+        }
+        return points.size();
+    }
+
+    private static List<Double> parseBeaconMarkersFromLine(String rawLine) {
+        String lower = rawLine.toLowerCase(Locale.ROOT);
+        if (!lower.contains("beacon markers")) {
+            return List.of();
+        }
+        List<String> cells = Rfc4180CsvLineSplitter.split(rawLine.trim(), ',');
+        if (cells.size() < 2) {
+            return List.of();
+        }
+        String markerCell = cells.get(1).replace("\"", "").trim();
+        if (markerCell.isEmpty()) {
+            return List.of();
+        }
+        String[] tokens = markerCell.split("\\s+");
+        List<Double> markers = new ArrayList<>();
+        for (String token : tokens) {
+            if (token == null || token.isBlank()) {
+                continue;
+            }
+            try {
+                markers.add(CsvTelemetryParser.parseDoubleLoose(token));
+            } catch (Exception ignored) {
+                // Ignore malformed marker values and keep parsing others.
+            }
+        }
+        Collections.sort(markers);
+        return markers;
+    }
+
+    private static boolean isMotecHeaderCandidate(String line) {
+        String lower = line.toLowerCase(Locale.ROOT);
+        return lower.contains("time")
+                && lower.contains("speed")
+                && lower.contains("throttle")
+                && lower.contains("brake")
+                && lower.contains("gear");
     }
 
     private static List<String> trimAll(List<String> cells) {
