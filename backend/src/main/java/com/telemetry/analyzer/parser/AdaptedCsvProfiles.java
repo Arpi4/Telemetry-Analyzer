@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Collections;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -80,6 +81,7 @@ public final class AdaptedCsvProfiles {
 
     public static SessionData parseMoTeCWorkbook(String text, String sourceFile, ImportReport report) {
         List<String> lines = text.lines().toList();
+        List<Double> beaconMarkersSeconds = parseBeaconMarkersSeconds(lines);
         int headerIdx = findMotecChannelHeaderLineIndex(lines);
         if (headerIdx < 0) {
             report.addError("MoTeC CSV: could not find channel header row (Time, Speed, Throttle, Brake, Gear).");
@@ -155,13 +157,96 @@ public final class AdaptedCsvProfiles {
             report.addWarning("MoTeC CSV: skipped " + skipped + " rows.");
         }
         report.addWarning("Parsed channel-row CSV (MoTeC workbook or compatible).");
+        List<LapData> laps = splitPointsIntoLapsByBeaconMarkers(points, beaconMarkersSeconds);
+        if (laps.size() > 1) {
+            report.addWarning("Detected " + laps.size() + " laps using MoTeC beacon markers.");
+        }
 
         return new SessionData(
                 buildSessionId(sourceFile),
                 sourceFile,
                 Instant.now(),
-                List.of(new LapData("lap-1", points))
+                laps
         );
+    }
+
+    private static List<LapData> splitPointsIntoLapsByBeaconMarkers(List<TelemetryPoint> points, List<Double> beaconMarkersSeconds) {
+        if (points.isEmpty()) {
+            return List.of(new LapData("lap-1", List.of()));
+        }
+        if (beaconMarkersSeconds.isEmpty()) {
+            return List.of(new LapData("lap-1", points));
+        }
+
+        List<LapData> laps = new ArrayList<>();
+        int startIdx = 0;
+        int lapNo = 1;
+
+        for (double marker : beaconMarkersSeconds) {
+            int markerIdx = firstIndexAtOrAfter(points, marker);
+            if (markerIdx <= startIdx || markerIdx > points.size()) {
+                continue;
+            }
+            List<TelemetryPoint> lapPoints = points.subList(startIdx, markerIdx);
+            if (!lapPoints.isEmpty()) {
+                laps.add(new LapData("lap-" + lapNo, lapPoints));
+                lapNo++;
+            }
+            startIdx = markerIdx;
+        }
+
+        if (startIdx < points.size()) {
+            List<TelemetryPoint> lapPoints = points.subList(startIdx, points.size());
+            if (!lapPoints.isEmpty()) {
+                laps.add(new LapData("lap-" + lapNo, lapPoints));
+            }
+        }
+
+        return laps.isEmpty() ? List.of(new LapData("lap-1", points)) : laps;
+    }
+
+    private static int firstIndexAtOrAfter(List<TelemetryPoint> points, double markerSeconds) {
+        for (int i = 0; i < points.size(); i++) {
+            if (points.get(i).timestamp() >= markerSeconds) {
+                return i;
+            }
+        }
+        return points.size();
+    }
+
+    private static List<Double> parseBeaconMarkersSeconds(List<String> lines) {
+        for (String rawLine : lines) {
+            if (rawLine == null || rawLine.isBlank()) {
+                continue;
+            }
+            String lower = rawLine.toLowerCase(Locale.ROOT);
+            if (!lower.contains("beacon markers")) {
+                continue;
+            }
+            List<String> cells = Rfc4180CsvLineSplitter.split(rawLine.trim(), ',');
+            if (cells.size() < 2) {
+                return List.of();
+            }
+            String markerCell = cells.get(1).replace("\"", "").trim();
+            if (markerCell.isEmpty()) {
+                return List.of();
+            }
+            String[] tokens = markerCell.split("\\s+");
+            List<Double> markers = new ArrayList<>();
+            for (String token : tokens) {
+                if (token == null || token.isBlank()) {
+                    continue;
+                }
+                try {
+                    markers.add(CsvTelemetryParser.parseDoubleLoose(token));
+                } catch (Exception ignored) {
+                    // Ignore malformed marker values and keep parsing others.
+                }
+            }
+            Collections.sort(markers);
+            return markers;
+        }
+        return List.of();
     }
 
     private static List<String> trimAll(List<String> cells) {
