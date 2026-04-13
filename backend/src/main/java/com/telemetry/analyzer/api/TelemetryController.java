@@ -16,6 +16,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api")
@@ -52,8 +53,14 @@ public class TelemetryController {
     }
 
     @GetMapping("/sessions")
-    public List<SessionData> listSessions() {
-        return sessionStore.list().stream().toList();
+    public List<Map<String, Object>> listSessions() {
+        return sessionStore.list().stream().map(session -> Map.of(
+                "sessionId", session.sessionId(),
+                "sourceFile", session.sourceFile(),
+                "importedAt", session.importedAt(),
+                "lapCount", session.laps().size(),
+                "lapIds", session.laps().stream().map(LapData::lapId).collect(Collectors.toList())
+        )).toList();
     }
 
     @GetMapping("/sessions/{sessionId}")
@@ -83,7 +90,9 @@ public class TelemetryController {
     @GetMapping("/compare")
     public ResponseEntity<?> compare(@RequestParam String referenceSessionId,
                                      @RequestParam String compareSessionId,
-                                     @RequestParam(defaultValue = "lap-1") String lapId) {
+                                     @RequestParam(defaultValue = "lap-1") String lapId,
+                                     @RequestParam(required = false) String referenceLapId,
+                                     @RequestParam(required = false) String compareLapId) {
         SessionData ref = sessionStore.get(referenceSessionId);
         SessionData cmp = sessionStore.get(compareSessionId);
         if (ref == null || cmp == null) {
@@ -98,12 +107,16 @@ public class TelemetryController {
             ));
         }
 
-        LapData refLap = ref.laps().stream().filter(l -> l.lapId().equals(lapId)).findFirst().orElse(null);
-        LapData cmpLap = cmp.laps().stream().filter(l -> l.lapId().equals(lapId)).findFirst().orElse(null);
+        String resolvedReferenceLapId = (referenceLapId == null || referenceLapId.isBlank()) ? lapId : referenceLapId;
+        String resolvedCompareLapId = (compareLapId == null || compareLapId.isBlank()) ? lapId : compareLapId;
+
+        LapData refLap = ref.laps().stream().filter(l -> l.lapId().equals(resolvedReferenceLapId)).findFirst().orElse(null);
+        LapData cmpLap = cmp.laps().stream().filter(l -> l.lapId().equals(resolvedCompareLapId)).findFirst().orElse(null);
         if (refLap == null || cmpLap == null) {
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "Lap not found in one or both sessions.",
-                    "lapId", lapId,
+                    "referenceLapId", resolvedReferenceLapId,
+                    "compareLapId", resolvedCompareLapId,
                     "referenceSessionId", referenceSessionId,
                     "compareSessionId", compareSessionId
             ));
@@ -111,11 +124,16 @@ public class TelemetryController {
         if (refLap.points().isEmpty() || cmpLap.points().isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "Cannot compare: one or both laps have no samples.",
-                    "lapId", lapId
+                    "referenceLapId", resolvedReferenceLapId,
+                    "compareLapId", resolvedCompareLapId
             ));
         }
 
-        return ResponseEntity.ok(analysisService.compareLaps(refLap, cmpLap));
+        return ResponseEntity.ok(Map.of(
+                "referenceLapId", resolvedReferenceLapId,
+                "compareLapId", resolvedCompareLapId,
+                "delta", analysisService.compareLaps(refLap, cmpLap)
+        ));
     }
 
     /**
