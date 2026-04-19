@@ -29,8 +29,7 @@ public class TelemetryController {
     private final AnalysisService analysisService;
     private final SegmentCompareService segmentCompareService;
 
-    public TelemetryController(TelemetryImportService importService, SessionStore sessionStore, AnalysisService analysisService,
-                               SegmentCompareService segmentCompareService) {
+    public TelemetryController(TelemetryImportService importService, SessionStore sessionStore, AnalysisService analysisService, SegmentCompareService segmentCompareService) {
         this.importService = importService;
         this.sessionStore = sessionStore;
         this.analysisService = analysisService;

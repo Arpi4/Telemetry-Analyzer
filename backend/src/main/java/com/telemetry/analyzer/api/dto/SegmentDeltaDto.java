@@ -1,5 +1,4 @@
 package com.telemetry.analyzer.api.dto;
-
 /**
  * Lap segment comparison: progress 0–1 along lap for schematic map placement;
  * distance bounds present when both laps have Distance channel samples.
