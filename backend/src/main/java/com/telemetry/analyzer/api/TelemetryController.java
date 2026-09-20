@@ -2,7 +2,7 @@ package com.telemetry.analyzer.api;
 
 import com.telemetry.analyzer.domain.LapData;
 import com.telemetry.analyzer.domain.SessionData;
-import com.telemetry.analyzer.api.dto.SegmentDeltaDto;
+import com.telemetry.analyzer.dto.SegmentDeltaDto;
 import com.telemetry.analyzer.service.AnalysisService;
 import com.telemetry.analyzer.service.SegmentCompareService;
 import com.telemetry.analyzer.service.SessionStore;
@@ -38,7 +38,7 @@ public class TelemetryController {
 
     @PostMapping("/telemetry/import")
     public ResponseEntity<?> importTelemetry(@RequestParam("file") MultipartFile file) throws IOException {
-        TelemetryImportService.ImportResult result = importService.importFile(file);
+        TelemetryImportService.ImportResult result = importService.importFile(file.getBytes(), file.getOriginalFilename());
         if (result.session() == null) {
             return ResponseEntity.badRequest().body(Map.of("report", result.report()));
         }

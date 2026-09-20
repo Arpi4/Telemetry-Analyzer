@@ -1,0 +1,4 @@
+com\telemetry\analyzer\CsvTelemetryParserTest.class
+com\telemetry\analyzer\AdaptedCsvProfilesTest.class
+com\telemetry\analyzer\TelemetryImportServiceTest.class
+com\telemetry\analyzer\LdxTelemetryParserTest.class
