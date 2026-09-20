@@ -6,24 +6,20 @@
     <artifactId>motorsport-telemetry-analyzer</artifactId>
     <version>0.1.0</version>
   </parent>
-  <artifactId>motorsport-telemetry-desktop</artifactId>
-  <name>motorsport-telemetry-desktop</name>
+  <artifactId>motorsport-telemetry-core</artifactId>
+  <name>motorsport-telemetry-core</name>
 
   <dependencies>
     <dependency>
-      <groupId>com.telemetry</groupId>
-      <artifactId>motorsport-telemetry-core</artifactId>
-      <version>${project.version}</version>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-csv</artifactId>
+      <version>${commons.csv.version}</version>
     </dependency>
     <dependency>
-      <groupId>org.openjfx</groupId>
-      <artifactId>javafx-controls</artifactId>
-      <version>${javafx.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.openjfx</groupId>
-      <artifactId>javafx-graphics</artifactId>
-      <version>${javafx.version}</version>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 
@@ -38,12 +34,9 @@
         </configuration>
       </plugin>
       <plugin>
-        <groupId>org.openjfx</groupId>
-        <artifactId>javafx-maven-plugin</artifactId>
-        <version>0.0.8</version>
-        <configuration>
-          <mainClass>com.telemetry.desktop.TelemetryDesktopApp</mainClass>
-        </configuration>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.2</version>
       </plugin>
     </plugins>
   </build>

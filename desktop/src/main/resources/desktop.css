@@ -1,0 +1,79 @@
+.root-pane {
+  -fx-background-color: #07090d;
+  -fx-font-family: "Segoe UI", "Source Sans 3", sans-serif;
+  -fx-font-size: 13px;
+}
+
+.hero {
+  -fx-background-color: linear-gradient(to right, #0c1018, #0a0f14);
+  -fx-border-color: rgba(255, 255, 255, 0.08);
+  -fx-border-width: 0 0 1 0;
+}
+
+.hero-title {
+  -fx-text-fill: #e8edf4;
+  -fx-font-size: 22px;
+  -fx-font-weight: 700;
+}
+
+.hero-tag {
+  -fx-text-fill: #8b9cb3;
+}
+
+.panel-title {
+  -fx-text-fill: #e8edf4;
+  -fx-font-weight: 700;
+}
+
+.summary {
+  -fx-text-fill: #8b9cb3;
+}
+
+.label {
+  -fx-text-fill: #c5d0dc;
+}
+
+.btn-primary {
+  -fx-background-color: #ff3d2e;
+  -fx-text-fill: white;
+  -fx-font-weight: 700;
+  -fx-background-radius: 4;
+}
+
+.btn-primary:hover {
+  -fx-background-color: #c42a1f;
+}
+
+.button {
+  -fx-background-color: #1a2330;
+  -fx-text-fill: #e8edf4;
+  -fx-background-radius: 4;
+}
+
+.list-view, .combo-box, .table-view, .text-area, .tab-pane {
+  -fx-background-color: #0d1118;
+  -fx-control-inner-background: #0d1118;
+  -fx-text-fill: #e8edf4;
+}
+
+.chart {
+  -fx-background-color: #0d1118;
+  -fx-padding: 8;
+}
+
+.chart-plot-background {
+  -fx-background-color: #121820;
+}
+
+.axis {
+  -fx-tick-label-fill: #8b9cb3;
+}
+
+.chart-title, .axis-label {
+  -fx-text-fill: #e8edf4;
+}
+
+.code-out {
+  -fx-font-family: Consolas, monospace;
+  -fx-font-size: 12px;
+}
