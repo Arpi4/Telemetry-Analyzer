@@ -11,27 +11,25 @@ Public URL: https://telemetry-analyzer.vercel.app/web/index.html
 
 ## Features
 
-- Upload and process telemetry data from CSV files
-- Speed visualization along the lap
-- Lap time calculation
-- Track map visualization
-- Lap comparison between multiple laps
-- Interactive data charts
+- Import telemetry from generic CSV, MoTeC i2 CSV exports (e.g. from Assetto Corsa Competizione), OpenF1 lap exports and LDX
+- Automatic lap splitting from beacon markers; complete-lap detection, fastest and theoretical best lap
+- Channel charts over lap distance (speed, throttle, brake, gear)
+- Distance-aligned lap comparison: speed/pedal overlays, cumulative delta time, exact sector deltas, braking point differences
+- Driving pattern detection: braking zones, corner apexes, time-weighted pedal metrics
+- Track map from GPS or reconstructed from yaw rate (dead reckoning with loop closure)
+- Web client (Spring Boot REST + Chart.js) and offline JavaFX desktop client sharing one analysis core
 
 ---
 
 ## Technologies
 
-- **Java (Spring Boot)** – backend services
-- **HTML / CSS** – frontend interface
-- **JavaScript** – client-side functionality
-- **Chart.js** – telemetry data visualization
+- **Java 21** – shared `core` analysis library (Maven multi-module)
+- **Spring Boot** – REST backend
+- **JavaFX** – offline desktop application
+- **HTML / CSS / JavaScript, Chart.js** – web client
+- **Docker, Render, Vercel** – deployment
 
-Future development may include:
-
-- **Java desktop application**
-- Extended telemetry analysis modules
-- Advanced data visualization tools
+See `README2.md` for build/run instructions.
 
 ---
 

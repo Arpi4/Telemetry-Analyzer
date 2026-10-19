@@ -1,0 +1,12 @@
+# Only poms + core/backend sources are needed for the backend image.
+**/target
+.git
+.idea
+.vscode
+*.iml
+backend/.mvn
+web
+docs
+desktop/src
+desktop/.mvn
+test_data*.csv

@@ -1,5 +1,8 @@
 package com.telemetry.analyzer.service;
 
+import com.telemetry.analyzer.analysis.DrivingEventDetector;
+import com.telemetry.analyzer.analysis.LapComparator;
+import com.telemetry.analyzer.analysis.TrackReconstructor;
 import com.telemetry.analyzer.parser.CsvTelemetryParser;
 import com.telemetry.analyzer.parser.GenericDelimitedParser;
 import com.telemetry.analyzer.parser.LdTelemetryParser;
@@ -16,6 +19,9 @@ public final class AnalyzerServices {
     private final TelemetryImportService importService;
     private final AnalysisService analysisService;
     private final SegmentCompareService segmentCompareService;
+    private final LapComparator lapComparator;
+    private final DrivingEventDetector drivingEventDetector;
+    private final TrackReconstructor trackReconstructor;
 
     public AnalyzerServices() {
         this.sessionStore = new SessionStore();
@@ -27,6 +33,9 @@ public final class AnalyzerServices {
         this.importService = new TelemetryImportService(parsers, sessionStore);
         this.analysisService = new AnalysisService();
         this.segmentCompareService = new SegmentCompareService();
+        this.lapComparator = new LapComparator();
+        this.drivingEventDetector = new DrivingEventDetector();
+        this.trackReconstructor = new TrackReconstructor();
     }
 
     public SessionStore sessionStore() {
@@ -43,5 +52,17 @@ public final class AnalyzerServices {
 
     public SegmentCompareService segmentCompareService() {
         return segmentCompareService;
+    }
+
+    public LapComparator lapComparator() {
+        return lapComparator;
+    }
+
+    public DrivingEventDetector drivingEventDetector() {
+        return drivingEventDetector;
+    }
+
+    public TrackReconstructor trackReconstructor() {
+        return trackReconstructor;
     }
 }

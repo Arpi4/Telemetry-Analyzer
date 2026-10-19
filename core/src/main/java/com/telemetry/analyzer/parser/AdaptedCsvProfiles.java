@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -91,6 +92,7 @@ public final class AdaptedCsvProfiles {
         int idxBrake = -1;
         int idxGear = -1;
         int idxDist = -1;
+        int idxYaw = -1;
         int idxGpsLat = -1;
         int idxGpsLon = -1;
         int minCells = -1;
@@ -98,6 +100,7 @@ public final class AdaptedCsvProfiles {
         List<TelemetryPoint> points = new ArrayList<>();
         int skipped = 0;
         boolean truncated = false;
+        char delimiter = ',';
 
         try (BufferedReader reader = new BufferedReader(new StringReader(text))) {
             String line;
@@ -113,16 +116,20 @@ public final class AdaptedCsvProfiles {
                     if (!isMotecHeaderCandidate(rawLine)) {
                         continue;
                     }
-                    columnNames = Rfc4180CsvLineSplitter.split(rawLine, ',');
+                    // MoTeC i2 writes commas; EU exports of the same layout often use semicolons.
+                    delimiter = CsvFormatSniffer.detectDelimiter(rawLine);
+                    columnNames = Rfc4180CsvLineSplitter.split(rawLine, delimiter);
                     columnNames = trimAll(columnNames);
                     columnNames = dedupeColumnNames(columnNames);
+                    Map<String, Integer> headerMap = headerMap(columnNames);
 
-                    idxTime = indexOfName(columnNames, "time");
-                    idxSpeed = indexOfName(columnNames, "speed");
-                    idxThrottle = indexOfName(columnNames, "throttle");
-                    idxBrake = indexOfName(columnNames, "brake");
-                    idxGear = indexOfName(columnNames, "gear");
-                    idxDist = indexOfName(columnNames, "distance");
+                    idxTime = columnIndex(headerMap, TelemetryChannelResolver.findTime(headerMap));
+                    idxSpeed = columnIndex(headerMap, TelemetryChannelResolver.findSpeed(headerMap));
+                    idxThrottle = columnIndex(headerMap, TelemetryChannelResolver.findThrottle(headerMap));
+                    idxBrake = columnIndex(headerMap, TelemetryChannelResolver.findBrake(headerMap));
+                    idxGear = columnIndex(headerMap, TelemetryChannelResolver.findGear(headerMap));
+                    idxDist = columnIndex(headerMap, TelemetryChannelResolver.findDistance(headerMap));
+                    idxYaw = columnIndex(headerMap, TelemetryChannelResolver.findYawRate(headerMap));
                     idxGpsLat = findGpsLatitudeColumnIndex(columnNames);
                     idxGpsLon = findGpsLongitudeColumnIndex(columnNames);
                     if (idxSpeed < 0 || idxThrottle < 0 || idxBrake < 0 || idxGear < 0) {
@@ -134,7 +141,7 @@ public final class AdaptedCsvProfiles {
                     continue;
                 }
 
-                if (isMotecUnitRow(rawLine)) {
+                if (isMotecUnitRow(rawLine, delimiter)) {
                     continue;
                 }
                 if (points.size() >= MAX_MOTEC_POINTS_STORED) {
@@ -142,7 +149,7 @@ public final class AdaptedCsvProfiles {
                     break;
                 }
                 try {
-                    List<String> cells = Rfc4180CsvLineSplitter.split(rawLine, ',');
+                    List<String> cells = Rfc4180CsvLineSplitter.split(rawLine, delimiter);
                     cells = trimAll(cells);
                     if (cells.size() < minCells) {
                         skipped++;
@@ -160,7 +167,8 @@ public final class AdaptedCsvProfiles {
                     Double lat = parseGeoLat(cells, idxGpsLat);
                     Double lon = parseGeoLon(cells, idxGpsLon);
                     Double dist = idxDist >= 0 ? parseOptionalDoubleCell(cells, idxDist) : null;
-                    points.add(new TelemetryPoint(t, speed, throttle, brake, gear, lat, lon, dist));
+                    Double yaw = idxYaw >= 0 ? parseOptionalDoubleCell(cells, idxYaw) : null;
+                    points.add(new TelemetryPoint(t, speed, throttle, brake, gear, lat, lon, dist, yaw));
                 } catch (Exception ex) {
                     skipped++;
                 }
@@ -201,7 +209,7 @@ public final class AdaptedCsvProfiles {
             return List.of(new LapData("lap-1", List.of()));
         }
         if (beaconMarkersSeconds.isEmpty()) {
-            return List.of(new LapData("lap-1", points));
+            return List.of(new LapData("lap-1", rebaseDistance(points)));
         }
 
         List<LapData> laps = new ArrayList<>();
@@ -213,9 +221,11 @@ public final class AdaptedCsvProfiles {
             if (markerIdx <= startIdx || markerIdx > points.size()) {
                 continue;
             }
-            List<TelemetryPoint> lapPoints = points.subList(startIdx, markerIdx);
+            // The first sample of the next lap also closes this one, so last - first timestamp is
+            // the full lap time instead of being one sample period short.
+            List<TelemetryPoint> lapPoints = points.subList(startIdx, Math.min(markerIdx + 1, points.size()));
             if (!lapPoints.isEmpty()) {
-                laps.add(new LapData("lap-" + lapNo, lapPoints));
+                laps.add(new LapData("lap-" + lapNo, rebaseDistance(lapPoints)));
                 lapNo++;
             }
             startIdx = markerIdx;
@@ -224,11 +234,33 @@ public final class AdaptedCsvProfiles {
         if (startIdx < points.size()) {
             List<TelemetryPoint> lapPoints = points.subList(startIdx, points.size());
             if (!lapPoints.isEmpty()) {
-                laps.add(new LapData("lap-" + lapNo, lapPoints));
+                laps.add(new LapData("lap-" + lapNo, rebaseDistance(lapPoints)));
             }
         }
 
-        return laps.isEmpty() ? List.of(new LapData("lap-1", points)) : laps;
+        return laps.isEmpty() ? List.of(new LapData("lap-1", rebaseDistance(points))) : laps;
+    }
+
+    /**
+     * MoTeC exports the Distance channel cumulatively over the whole outing; analysis needs
+     * distance from the start of each lap, otherwise laps 2..n cannot be overlaid.
+     */
+    static List<TelemetryPoint> rebaseDistance(List<TelemetryPoint> lapPoints) {
+        Double origin = null;
+        for (TelemetryPoint p : lapPoints) {
+            if (p.distanceMeters() != null) {
+                origin = p.distanceMeters();
+                break;
+            }
+        }
+        if (origin == null || origin == 0.0) {
+            return lapPoints;
+        }
+        List<TelemetryPoint> out = new ArrayList<>(lapPoints.size());
+        for (TelemetryPoint p : lapPoints) {
+            out.add(p.withDistance(p.distanceMeters() == null ? null : p.distanceMeters() - origin));
+        }
+        return out;
     }
 
     private static int firstIndexAtOrAfter(List<TelemetryPoint> points, double markerSeconds) {
@@ -290,10 +322,15 @@ public final class AdaptedCsvProfiles {
         if (gearCell == null || gearCell.isBlank()) {
             return 0;
         }
+        String g = gearCell.trim();
+        if (g.equalsIgnoreCase("R")) {
+            return -1;
+        }
         try {
-            return (int) Math.round(Double.parseDouble(gearCell.replace(',', '.').trim()));
+            return (int) Math.round(Double.parseDouble(g.replace(',', '.')));
         } catch (NumberFormatException e) {
-            return Math.abs(gearCell.hashCode() % 8) + 1;
+            // "N" and any other non-numeric label: treat as neutral rather than dropping the sample.
+            return 0;
         }
     }
 
@@ -464,12 +501,12 @@ public final class AdaptedCsvProfiles {
         return -1;
     }
 
-    private static boolean isMotecUnitRow(String line) {
+    private static boolean isMotecUnitRow(String line, char delimiter) {
         String t = line.trim();
         if (t.isEmpty()) {
             return false;
         }
-        List<String> cells = Rfc4180CsvLineSplitter.split(t, ',');
+        List<String> cells = Rfc4180CsvLineSplitter.split(t, delimiter);
         if (cells.isEmpty()) {
             return false;
         }
@@ -492,13 +529,17 @@ public final class AdaptedCsvProfiles {
         return out;
     }
 
-    private static int indexOfName(List<String> names, String logical) {
+    /** Insertion-ordered, so the resolver prefers the first of duplicate names (e.g. "Time" before "TIME_2"). */
+    private static Map<String, Integer> headerMap(List<String> names) {
+        Map<String, Integer> map = new LinkedHashMap<>();
         for (int i = 0; i < names.size(); i++) {
-            if (logical.equalsIgnoreCase(names.get(i))) {
-                return i;
-            }
+            map.putIfAbsent(names.get(i), i);
         }
-        return -1;
+        return map;
+    }
+
+    private static int columnIndex(Map<String, Integer> headerMap, String key) {
+        return key == null ? -1 : headerMap.get(key);
     }
 
     /**

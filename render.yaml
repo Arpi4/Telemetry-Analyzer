@@ -2,6 +2,15 @@ services:
   - type: web
     name: motorsport-telemetry-backend
     runtime: docker
-    rootDir: backend
+    # The backend image needs the shared core module, so the build context is the repo root.
+    dockerContext: .
+    dockerfilePath: ./backend/Dockerfile
     plan: free
     autoDeploy: true
+    buildFilter:
+      paths:
+        - pom.xml
+        - .dockerignore
+        - core/**
+        - backend/**
+        - desktop/pom.xml

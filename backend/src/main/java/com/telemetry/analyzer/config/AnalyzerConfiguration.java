@@ -1,5 +1,8 @@
 package com.telemetry.analyzer.config;
 
+import com.telemetry.analyzer.analysis.DrivingEventDetector;
+import com.telemetry.analyzer.analysis.LapComparator;
+import com.telemetry.analyzer.analysis.TrackReconstructor;
 import com.telemetry.analyzer.parser.CsvTelemetryParser;
 import com.telemetry.analyzer.parser.GenericDelimitedParser;
 import com.telemetry.analyzer.parser.LdTelemetryParser;
@@ -49,5 +52,20 @@ public class AnalyzerConfiguration {
     @Bean
     public SegmentCompareService segmentCompareService() {
         return new SegmentCompareService();
+    }
+
+    @Bean
+    public LapComparator lapComparator() {
+        return new LapComparator();
+    }
+
+    @Bean
+    public DrivingEventDetector drivingEventDetector() {
+        return new DrivingEventDetector();
+    }
+
+    @Bean
+    public TrackReconstructor trackReconstructor() {
+        return new TrackReconstructor();
     }
 }

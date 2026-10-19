@@ -1,11 +1,16 @@
 {
   "name": "telemetry-web-api-examples",
-  "description": "Optional API examples for web integration",
+  "description": "REST endpoints of the backend (all under /api)",
   "endpoints": {
     "import": "POST /api/telemetry/import",
     "sessions": "GET /api/sessions",
     "sessionById": "GET /api/sessions/{sessionId}",
     "lapSummary": "GET /api/sessions/{sessionId}/laps/{lapId}/summary",
-    "compare": "GET /api/compare?referenceSessionId=...&compareSessionId=..."
+    "compare": "GET /api/compare?referenceSessionId=...&compareSessionId=...&referenceLapId=...&compareLapId=...",
+    "compareSegments": "GET /api/compare/segments?referenceSessionId=...&compareSessionId=...&lapId=...&segmentCount=10",
+    "sessionOverview": "GET /api/sessions/{sessionId}/overview?sectorCount=10",
+    "lapEvents": "GET /api/sessions/{sessionId}/laps/{lapId}/events",
+    "lapTrack": "GET /api/sessions/{sessionId}/laps/{lapId}/track",
+    "compareAligned": "GET /api/compare/aligned?referenceSessionId=...&referenceLapId=...&compareSessionId=...&compareLapId=...&stepMeters=5&sectorCount=10"
   }
 }

@@ -1,375 +1,294 @@
 package com.telemetry.desktop;
 
 import com.telemetry.analyzer.domain.ImportReport;
-import com.telemetry.analyzer.domain.LapData;
 import com.telemetry.analyzer.domain.SessionData;
-import com.telemetry.analyzer.dto.SegmentDeltaDto;
-import com.telemetry.analyzer.service.AnalysisService;
-import com.telemetry.analyzer.service.AnalyzerServices;
-import com.telemetry.analyzer.service.TelemetryImportService;
+import com.telemetry.analyzer.service.TelemetryImportService.ImportResult;
+import javafx.animation.PauseTransition;
 import javafx.application.Application;
-import javafx.collections.FXCollections;
+import javafx.application.Platform;
+import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.Scene;
-import javafx.scene.chart.LineChart;
-import javafx.scene.control.*;
-import javafx.scene.layout.*;
+import javafx.scene.control.Button;
+import javafx.scene.control.Label;
+import javafx.scene.control.ProgressBar;
+import javafx.scene.control.Tab;
+import javafx.scene.control.TabPane;
+import javafx.scene.control.TextArea;
+import javafx.scene.input.TransferMode;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Pane;
+import javafx.scene.layout.Priority;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
+import javafx.util.Duration;
 
 import java.io.File;
-import java.nio.file.Files;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 
+/**
+ * Offline desktop client. Parsing and analysis run in-process through the shared core module;
+ * there is no HTTP and no server dependency.
+ *
+ * <p>Command line: telemetry files to open, plus {@code --screenshots=<dir>} to render the main
+ * views to PNG files and exit (used for documentation screenshots).
+ */
 public class TelemetryDesktopApp extends Application {
 
-    private final AnalyzerServices services = new AnalyzerServices();
-
-    private final ListView<SessionData> sessionList = new ListView<>();
-    private final ComboBox<LapData> lapSelect = new ComboBox<>();
-    private final Label lapTimeLabel = new Label("Lap time: -");
-    private final Label summaryLabel = new Label("Import a telemetry file to begin.");
+    private final SessionModel model = new SessionModel();
+    private final LapAnalysisView lapView = new LapAnalysisView(model);
+    private final LapComparisonView compareView = new LapComparisonView(model);
     private final TextArea reportArea = new TextArea();
-
-    private final LineChart<Number, Number> speedChart = ChartUtil.lineChart("Distance / time", "km/h");
-    private final LineChart<Number, Number> throttleChart = ChartUtil.lineChart("Distance / time", "%");
-    private final LineChart<Number, Number> brakeChart = ChartUtil.lineChart("Distance / time", "%");
-    private final LineChart<Number, Number> gearChart = ChartUtil.lineChart("Distance / time", "gear");
-    private final LineChart<Number, Number> trackChart = ChartUtil.lineChart("Longitude", "Latitude");
-    private final LineChart<Number, Number> compareChart = ChartUtil.lineChart("Distance / time", "km/h");
-
-    private final ComboBox<SessionData> refSession = new ComboBox<>();
-    private final ComboBox<SessionData> cmpSession = new ComboBox<>();
-    private final ComboBox<LapData> refLap = new ComboBox<>();
-    private final ComboBox<LapData> cmpLap = new ComboBox<>();
-    private final Label compareSummary = new Label("Select two sessions and laps, then compare.");
-    private final TableView<SegmentDeltaDto> segmentTable = new TableView<>();
+    private final Label status = new Label("Ready. Open or drop CSV / LDX telemetry files.");
+    private final ProgressBar progress = new ProgressBar();
+    private final TabPane tabs = new TabPane();
+    private Stage stage;
 
     @Override
     public void start(Stage stage) {
+        this.stage = stage;
         stage.setTitle("Motorsport Telemetry Analyzer");
-
-        reportArea.setEditable(false);
-        reportArea.setPrefRowCount(5);
-        reportArea.getStyleClass().add("code-out");
-        sessionList.setPrefWidth(280);
-        sessionList.setCellFactory(list -> new ListCell<>() {
-            @Override
-            protected void updateItem(SessionData item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null
-                        ? null
-                        : item.sourceFile() + "  (" + item.laps().size() + " laps)");
-            }
-        });
-        styleSessionCombo(refSession);
-        styleSessionCombo(cmpSession);
-        styleLapCombo(lapSelect);
-        styleLapCombo(refLap);
-        styleLapCombo(cmpLap);
-
-        Button openBtn = new Button("Open file");
-        openBtn.getStyleClass().add("btn-primary");
-        openBtn.setOnAction(e -> openFile(stage));
-
-        Button prevLap = new Button("Previous lap");
-        Button nextLap = new Button("Next lap");
-        prevLap.setOnAction(e -> shiftLap(-1));
-        nextLap.setOnAction(e -> shiftLap(1));
-        lapSelect.setOnAction(e -> renderCurrentLap());
-
-        sessionList.getSelectionModel().selectedItemProperty().addListener((obs, o, n) -> {
-            if (n != null) {
-                loadSession(n);
-            }
-        });
-
-        HBox lapBar = new HBox(8, prevLap, lapSelect, nextLap, lapTimeLabel);
-        lapBar.setAlignment(Pos.CENTER_LEFT);
-
-        TabPane charts = new TabPane(
-                tab("Speed", speedChart),
-                tab("Throttle", throttleChart),
-                tab("Brake", brakeChart),
-                tab("Gear", gearChart),
-                tab("Track map", trackChart)
-        );
-        charts.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-
-        VBox left = new VBox(10,
-                labeled("Sessions", sessionList),
-                labeled("Current lap", lapBar),
-                wrapSummary()
-        );
-        left.setPrefWidth(320);
-        VBox.setVgrow(sessionList, Priority.ALWAYS);
-
-        SplitPane split = new SplitPane(left, charts);
-        split.setDividerPositions(0.28);
-
-        VBox compareBox = buildComparePane();
-        TabPane mainTabs = new TabPane(
-                tab("Lap charts", split),
-                tab("Lap comparison", compareBox)
-        );
-        mainTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        VBox.setVgrow(mainTabs, Priority.ALWAYS);
 
         Label title = new Label("Telemetry Analyzer");
         title.getStyleClass().add("hero-title");
-        Label tag = new Label("Local CSV · LDX · lap compare");
+        Label tag = new Label("Offline · MoTeC CSV · generic CSV · LDX · lap compare");
         tag.getStyleClass().add("hero-tag");
-        HBox header = new HBox(16, title, tag, new Pane(), openBtn);
-        HBox.setHgrow(header.getChildren().get(2), Priority.ALWAYS);
+        Button open = new Button("Open files…");
+        open.getStyleClass().add("btn-primary");
+        open.setOnAction(e -> chooseFiles());
+        Button export = new Button("Export view as PNG");
+        export.setOnAction(e -> exportCurrentView());
+        Pane spacer = new Pane();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox header = new HBox(16, title, tag, spacer, export, open);
         header.setAlignment(Pos.CENTER_LEFT);
         header.getStyleClass().add("hero");
-        header.setPadding(new Insets(16));
+        header.setPadding(new Insets(12, 16, 12, 16));
 
-        VBox root = new VBox(12, header, mainTabs, labeled("Import report", reportArea));
-        root.setPadding(new Insets(0, 16, 16, 16));
+        reportArea.setEditable(false);
+        reportArea.getStyleClass().add("code-out");
+        tabs.getTabs().addAll(
+                new Tab("Lap analysis", lapView.node()),
+                new Tab("Lap comparison", compareView.node()),
+                new Tab("Import report", reportArea));
+        tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+
+        progress.setVisible(false);
+        progress.setPrefWidth(160);
+        HBox statusBar = new HBox(10, progress, status);
+        statusBar.setAlignment(Pos.CENTER_LEFT);
+        statusBar.getStyleClass().add("status-bar");
+        statusBar.setPadding(new Insets(6, 12, 6, 12));
+
+        BorderPane root = new BorderPane(tabs, header, null, statusBar, null);
         root.getStyleClass().add("root-pane");
 
-        Scene scene = new Scene(root, 1280, 800);
+        Scene scene = new Scene(root, 1600, 980);
         var css = getClass().getResource("/desktop.css");
         if (css != null) {
             scene.getStylesheets().add(css.toExternalForm());
         }
+        scene.setOnDragOver(e -> {
+            if (e.getDragboard().hasFiles()) {
+                e.acceptTransferModes(TransferMode.COPY);
+            }
+            e.consume();
+        });
+        scene.setOnDragDropped(e -> {
+            boolean ok = e.getDragboard().hasFiles();
+            if (ok) {
+                importFiles(e.getDragboard().getFiles().stream().map(File::toPath).toList(), null);
+            }
+            e.setDropCompleted(ok);
+            e.consume();
+        });
         stage.setScene(scene);
         stage.show();
+
+        List<Path> files = new ArrayList<>();
+        Path screenshots = null;
+        for (String arg : getParameters().getRaw()) {
+            if (arg.startsWith("--screenshots=")) {
+                screenshots = Path.of(arg.substring("--screenshots=".length()));
+            } else if (!arg.startsWith("--")) {
+                files.add(Path.of(arg));
+            }
+        }
+        if (screenshots != null) {
+            // figures for print: a smaller window with a larger font keeps the UI text legible
+            // when the screenshot is scaled down to the page width
+            root.setStyle("-fx-font-size: 14px;");
+            stage.setWidth(1280);
+            stage.setHeight(860);
+        }
+        if (!files.isEmpty()) {
+            Path shotDir = screenshots;
+            importFiles(files, shotDir == null ? null : () -> renderScreenshots(shotDir));
+        }
     }
 
-    private VBox buildComparePane() {
-        setupSegmentTable();
-        Button run = new Button("Compare laps");
-        run.getStyleClass().add("btn-primary");
-        run.setOnAction(e -> runCompare());
-
-        refSession.setOnAction(e -> fillLaps(refSession.getValue(), refLap));
-        cmpSession.setOnAction(e -> fillLaps(cmpSession.getValue(), cmpLap));
-
-        GridPane pickers = new GridPane();
-        pickers.setHgap(10);
-        pickers.setVgap(8);
-        pickers.add(new Label("Reference session"), 0, 0);
-        pickers.add(refSession, 1, 0);
-        pickers.add(new Label("Reference lap"), 2, 0);
-        pickers.add(refLap, 3, 0);
-        pickers.add(new Label("Compare session"), 0, 1);
-        pickers.add(cmpSession, 1, 1);
-        pickers.add(new Label("Compare lap"), 2, 1);
-        pickers.add(cmpLap, 3, 1);
-        pickers.add(run, 4, 1);
-
-        VBox box = new VBox(10, pickers, compareSummary, compareChart, segmentTable);
-        VBox.setVgrow(compareChart, Priority.ALWAYS);
-        VBox.setVgrow(segmentTable, Priority.SOMETIMES);
-        box.setPadding(new Insets(12));
-        return box;
-    }
-
-    private void setupSegmentTable() {
-        TableColumn<SegmentDeltaDto, Number> idx = new TableColumn<>("#");
-        idx.setCellValueFactory(c -> new javafx.beans.property.SimpleIntegerProperty(c.getValue().index()));
-        TableColumn<SegmentDeltaDto, String> delta = new TableColumn<>("Δt (s)");
-        delta.setCellValueFactory(c -> new javafx.beans.property.SimpleStringProperty(
-                String.format("%+.3f", c.getValue().deltaSeconds())));
-        TableColumn<SegmentDeltaDto, String> refSp = new TableColumn<>("Ref avg km/h");
-        refSp.setCellValueFactory(c -> new javafx.beans.property.SimpleStringProperty(
-                String.format("%.1f", c.getValue().referenceAvgSpeedKmh())));
-        TableColumn<SegmentDeltaDto, String> cmpSp = new TableColumn<>("Cmp avg km/h");
-        cmpSp.setCellValueFactory(c -> new javafx.beans.property.SimpleStringProperty(
-                String.format("%.1f", c.getValue().compareAvgSpeedKmh())));
-        TableColumn<SegmentDeltaDto, String> basis = new TableColumn<>("Basis");
-        basis.setCellValueFactory(c -> new javafx.beans.property.SimpleStringProperty(
-                c.getValue().distanceBased() ? "distance" : "index"));
-        segmentTable.getColumns().setAll(List.of(idx, delta, refSp, cmpSp, basis));
-        segmentTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
-        segmentTable.setPlaceholder(new Label("No segment deltas yet"));
-        segmentTable.setPrefHeight(220);
-    }
-
-    private void openFile(Stage stage) {
+    private void chooseFiles() {
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("Open telemetry file");
-        chooser.getExtensionFilters().add(
-                new FileChooser.ExtensionFilter("Telemetry files", "*.csv", "*.ld", "*.ldx"));
-        File file = chooser.showOpenDialog(stage);
+        chooser.setTitle("Open telemetry files");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Telemetry files", "*.csv", "*.ld", "*.ldx"));
+        List<File> files = chooser.showOpenMultipleDialog(stage);
+        if (files != null && !files.isEmpty()) {
+            importFiles(files.stream().map(File::toPath).toList(), null);
+        }
+    }
+
+    /** Parses on a worker thread; the UI stays responsive during large MoTeC imports. */
+    private void importFiles(List<Path> files, Runnable afterImport) {
+        Task<List<ImportResult>> task = new Task<>() {
+            @Override
+            protected List<ImportResult> call() throws IOException {
+                List<ImportResult> results = new ArrayList<>();
+                for (int i = 0; i < files.size(); i++) {
+                    updateMessage("Importing " + files.get(i).getFileName() + " (" + (i + 1) + "/" + files.size() + ")…");
+                    updateProgress(i, files.size());
+                    results.add(model.importFile(files.get(i)));
+                }
+                updateProgress(files.size(), files.size());
+                return results;
+            }
+        };
+        progress.progressProperty().bind(task.progressProperty());
+        status.textProperty().bind(task.messageProperty());
+        progress.setVisible(true);
+        long started = System.nanoTime();
+        task.setOnSucceeded(e -> {
+            unbindStatus();
+            List<ImportResult> results = task.getValue();
+            int ok = 0;
+            SessionData last = null;
+            for (ImportResult r : results) {
+                appendReport(r.report());
+                if (r.session() != null) {
+                    ok++;
+                    last = r.session();
+                }
+            }
+            model.refresh();
+            status.setText(String.format(Locale.ROOT, "Imported %d of %d file(s) in %.1f s.", ok, results.size(),
+                    (System.nanoTime() - started) / 1e9));
+            if (last != null) {
+                lapView.select(last);
+                compareView.selectDefaults();
+            } else {
+                tabs.getSelectionModel().select(2);
+            }
+            if (afterImport != null) {
+                afterImport.run();
+            }
+        });
+        task.setOnFailed(e -> {
+            unbindStatus();
+            Throwable ex = task.getException();
+            status.setText("Import failed: " + (ex == null ? "unknown error" : ex.getMessage()));
+            reportArea.appendText(timestamp() + " Import failed: " + ex + "\n");
+            tabs.getSelectionModel().select(2);
+        });
+        Thread worker = new Thread(task, "telemetry-import");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void unbindStatus() {
+        status.textProperty().unbind();
+        progress.progressProperty().unbind();
+        progress.setVisible(false);
+    }
+
+    private void appendReport(ImportReport report) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(timestamp()).append(' ').append(report.getSourceFile()).append(": ")
+                .append(report.getErrors().isEmpty() ? "OK" : "FAILED").append('\n');
+        for (String err : report.getErrors()) {
+            sb.append("    ERROR ").append(err).append('\n');
+        }
+        for (String w : report.getWarnings()) {
+            sb.append("    note  ").append(w).append('\n');
+        }
+        reportArea.appendText(sb.toString());
+    }
+
+    private void exportCurrentView() {
+        Node node = tabs.getSelectionModel().getSelectedItem().getContent();
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Export view as PNG");
+        chooser.setInitialFileName("telemetry-view.png");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PNG image", "*.png"));
+        File file = chooser.showSaveDialog(stage);
         if (file == null) {
             return;
         }
         try {
-            byte[] bytes = Files.readAllBytes(file.toPath());
-            TelemetryImportService.ImportResult result = services.importService().importFile(bytes, file.getName());
-            reportArea.setText(formatReport(result.report()));
-            refreshSessions();
-            if (result.session() != null) {
-                sessionList.getSelectionModel().select(result.session());
-            }
-        } catch (Exception ex) {
-            reportArea.setText("Failed to read file: " + ex.getMessage());
+            ImageExport.savePng(node, file.toPath());
+            status.setText("Saved " + file.getName());
+        } catch (IOException ex) {
+            status.setText("Export failed: " + ex.getMessage());
         }
     }
 
-    private void refreshSessions() {
-        List<SessionData> sessions = new ArrayList<>(services.sessionStore().list());
-        sessions.sort(Comparator.comparing(SessionData::importedAt).reversed());
-        sessionList.setItems(FXCollections.observableArrayList(sessions));
-        refSession.setItems(FXCollections.observableArrayList(sessions));
-        cmpSession.setItems(FXCollections.observableArrayList(sessions));
-    }
-
-    private void loadSession(SessionData session) {
-        lapSelect.setItems(FXCollections.observableArrayList(session.laps()));
-        if (!session.laps().isEmpty()) {
-            lapSelect.getSelectionModel().selectFirst();
-            renderCurrentLap();
-        }
-    }
-
-    private void shiftLap(int delta) {
-        int idx = lapSelect.getSelectionModel().getSelectedIndex();
-        if (idx < 0) {
-            return;
-        }
-        int next = Math.clamp(idx + delta, 0, lapSelect.getItems().size() - 1);
-        lapSelect.getSelectionModel().select(next);
-    }
-
-    private void renderCurrentLap() {
-        LapData lap = lapSelect.getValue();
-        if (lap == null) {
-            return;
-        }
-        lapTimeLabel.setText("Lap time: " + ChartUtil.formatLapTime(ChartUtil.lapDurationSeconds(lap)));
-        AnalysisService.LapSummary summary = services.analysisService().summarizeLap(lap);
-        summaryLabel.setText(String.format(
-                "min %.1f km/h · avg %.1f km/h · max %.1f km/h%nthrottle %.1f%% · brake %.1f%% · gear changes %d · samples %d",
-                summary.minSpeed(), summary.avgSpeed(), summary.maxSpeed(),
-                summary.throttleUsagePercent(), summary.brakeUsagePercent(),
-                summary.gearChanges(), lap.points().size()));
-
-        replace(speedChart, ChartUtil.series("Speed", lap.points(), p -> p.speed()));
-        replace(throttleChart, ChartUtil.series("Throttle", lap.points(), p -> p.throttle()));
-        replace(brakeChart, ChartUtil.series("Brake", lap.points(), p -> p.brake()));
-        replace(gearChart, ChartUtil.series("Gear", lap.points(), p -> p.gear()));
-        trackChart.getData().clear();
-        if (ChartUtil.hasGps(lap)) {
-            trackChart.getData().add(ChartUtil.gpsSeries("Track", lap.points()));
-        }
-    }
-
-    private void runCompare() {
-        SessionData refS = refSession.getValue();
-        SessionData cmpS = cmpSession.getValue();
-        LapData rLap = refLap.getValue();
-        LapData cLap = cmpLap.getValue();
-        if (refS == null || cmpS == null || rLap == null || cLap == null) {
-            compareSummary.setText("Pick both sessions and laps first.");
-            return;
-        }
-        if (rLap.points().isEmpty() || cLap.points().isEmpty()) {
-            compareSummary.setText("Cannot compare: one or both laps have no samples.");
-            return;
-        }
-        AnalysisService.LapDelta delta = services.analysisService().compareLaps(rLap, cLap);
-        compareSummary.setText(String.format(
-                "Compared %d samples. Average speed delta (compare − reference): %+.2f km/h. Overlay: red = reference, cyan = compare.",
-                delta.comparedSamples(), delta.avgSpeedDelta()));
-        compareChart.getData().clear();
-        var refSeries = ChartUtil.series("Reference", rLap.points(), p -> p.speed());
-        var cmpSeries = ChartUtil.series("Compare", cLap.points(), p -> p.speed());
-        compareChart.getData().addAll(refSeries, cmpSeries);
-        List<SegmentDeltaDto> segs = services.segmentCompareService().compareLapSegments(rLap, cLap, 10);
-        segmentTable.setItems(FXCollections.observableArrayList(segs));
-    }
-
-    private static void fillLaps(SessionData session, ComboBox<LapData> combo) {
-        if (session == null) {
-            combo.getItems().clear();
-            return;
-        }
-        combo.setItems(FXCollections.observableArrayList(session.laps()));
-        if (!session.laps().isEmpty()) {
-            combo.getSelectionModel().selectFirst();
-        }
-    }
-
-    @SafeVarargs
-    private static void replace(LineChart<Number, Number> chart, javafx.scene.chart.XYChart.Series<Number, Number>... series) {
-        chart.getData().clear();
-        chart.getData().addAll(series);
-    }
-
-    private Label wrapSummary() {
-        summaryLabel.setWrapText(true);
-        summaryLabel.getStyleClass().add("summary");
-        return summaryLabel;
-    }
-
-    private static Tab tab(String title, javafx.scene.Node content) {
-        Tab t = new Tab(title, content);
-        t.setClosable(false);
-        return t;
-    }
-
-    private static VBox labeled(String title, javafx.scene.Node node) {
-        Label l = new Label(title);
-        l.getStyleClass().add("panel-title");
-        return new VBox(6, l, node);
-    }
-
-    private static void styleSessionCombo(ComboBox<SessionData> combo) {
-        combo.setPrefWidth(220);
-        combo.setCellFactory(list -> new ListCell<>() {
-            @Override
-            protected void updateItem(SessionData item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.sourceFile());
-            }
+    /** Renders the main views to PNG files, then exits. */
+    private void renderScreenshots(Path dir) {
+        List<Runnable> steps = new ArrayList<>();
+        steps.add(() -> {
+            // same lap as the comparison reference, so the figures belong together
+            lapView.select(model.sessions().getFirst());
+            tabs.getSelectionModel().select(0);
         });
-        combo.setButtonCell(new ListCell<>() {
-            @Override
-            protected void updateItem(SessionData item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.sourceFile());
-            }
+        steps.add(() -> {
+            save(tabs.getSelectionModel().getSelectedItem().getContent(), dir.resolve("desktop-lap-analysis.png"));
+            save(lapView.trackMap(), dir.resolve("desktop-track-map-speed.png"));
+            tabs.getSelectionModel().select(1);
+            compareView.compare();
         });
+        steps.add(() -> {
+            save(compareView.node(), dir.resolve("desktop-lap-comparison.png"));
+            save(compareView.charts(), dir.resolve("desktop-compare-charts.png"));
+            save(compareView.trackMap(), dir.resolve("desktop-track-map-delta.png"));
+            tabs.getSelectionModel().select(2);
+        });
+        steps.add(() -> {
+            save(reportArea, dir.resolve("desktop-import-report.png"));
+            Platform.exit();
+        });
+        runSteps(steps, 0);
     }
 
-    private static void styleLapCombo(ComboBox<LapData> combo) {
-        combo.setPrefWidth(140);
-        combo.setCellFactory(list -> new ListCell<>() {
-            @Override
-            protected void updateItem(LapData item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.lapId());
-            }
+    private void runSteps(List<Runnable> steps, int i) {
+        if (i >= steps.size()) {
+            return;
+        }
+        PauseTransition pause = new PauseTransition(Duration.millis(900));
+        pause.setOnFinished(e -> {
+            steps.get(i).run();
+            runSteps(steps, i + 1);
         });
-        combo.setButtonCell(new ListCell<>() {
-            @Override
-            protected void updateItem(LapData item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.lapId());
-            }
-        });
+        pause.play();
     }
 
-    private static String formatReport(ImportReport report) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("File: ").append(report.getSourceFile()).append('\n');
-        if (report.getErrors().isEmpty() && report.getWarnings().isEmpty()) {
-            sb.append("Import OK.");
+    private void save(Node node, Path file) {
+        try {
+            ImageExport.savePng(node, file);
+            System.out.println("saved " + file.toAbsolutePath());
+        } catch (IOException ex) {
+            System.err.println("could not save " + file + ": " + ex.getMessage());
         }
-        for (String e : report.getErrors()) {
-            sb.append("ERROR: ").append(e).append('\n');
-        }
-        for (String w : report.getWarnings()) {
-            sb.append("WARN: ").append(w).append('\n');
-        }
-        return sb.toString();
+    }
+
+    private static String timestamp() {
+        return LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
     }
 
     public static void main(String[] args) {
