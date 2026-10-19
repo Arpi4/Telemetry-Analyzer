@@ -25,6 +25,8 @@ class CsvTelemetryParserTest {
         assertEquals(1, session.laps().size());
         assertEquals(2, session.laps().get(0).points().size());
         assertTrue(report.getErrors().isEmpty());
+        // "timestamp" must be used as the time channel, not replaced by a synthetic clock.
+        assertEquals(0.1, session.laps().get(0).points().get(1).timestamp(), 1e-9);
     }
 
     @Test
@@ -41,5 +43,8 @@ class CsvTelemetryParserTest {
         assertEquals(1, session.laps().size());
         assertEquals(2, session.laps().get(0).points().size());
         assertTrue(report.getErrors().isEmpty());
+        // EU decimal comma inside a semicolon-delimited file.
+        assertEquals(0.1, session.laps().get(0).points().get(1).timestamp(), 1e-9);
+        assertEquals(10.0, session.laps().get(0).points().get(1).speed(), 1e-9);
     }
 }

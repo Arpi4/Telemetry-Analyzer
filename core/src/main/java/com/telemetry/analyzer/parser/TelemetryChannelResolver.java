@@ -75,6 +75,15 @@ public final class TelemetryChannelResolver {
         return findFuzzy(headers, "distance", "odometer");
     }
 
+    /** Yaw rate in deg/s, e.g. MoTeC/ACC "ROTY". Exact names only: "yaw" alone is often an angle. */
+    public static String findYawRate(Map<String, Integer> headers) {
+        String key = findExact(headers, "roty", "yaw rate", "yaw_rate", "yawrate", "gyro yaw rate");
+        if (key != null) {
+            return key;
+        }
+        return findFuzzy(headers, "yaw rate", "yaw_rate");
+    }
+
     private static String findExact(Map<String, Integer> headers, String... candidates) {
         for (String raw : headers.keySet()) {
             String norm = raw.trim().toLowerCase(Locale.ROOT);

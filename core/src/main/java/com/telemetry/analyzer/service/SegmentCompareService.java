@@ -1,5 +1,6 @@
 package com.telemetry.analyzer.service;
 
+import com.telemetry.analyzer.analysis.LapTrace;
 import com.telemetry.analyzer.domain.LapData;
 import com.telemetry.analyzer.domain.TelemetryPoint;
 import com.telemetry.analyzer.dto.SegmentDeltaDto;
@@ -21,7 +22,7 @@ public class SegmentCompareService {
         if (distanceCoverage(rp) >= 0.8 && distanceCoverage(cp) >= 0.8) {
             return byDistance(rp, cp, nSeg);
         }
-        return byIndex(rp, cp, nSeg);
+        return byIndex(rp, cp, nSeg, LapTrace.of(reference).lapLength());
     }
 
     private static double distanceCoverage(List<TelemetryPoint> points) {
@@ -37,7 +38,7 @@ public class SegmentCompareService {
         double maxC = maxDistance(cp);
         double maxD = Math.min(maxR, maxC);
         if (maxD <= 1) {
-            return byIndex(rp, cp, nSeg);
+            return byIndex(rp, cp, nSeg, maxR);
         }
         double width = maxD / nSeg;
         List<SegmentDeltaDto> out = new ArrayList<>();
@@ -55,7 +56,12 @@ public class SegmentCompareService {
         return out;
     }
 
-    private static List<SegmentDeltaDto> byIndex(List<TelemetryPoint> rp, List<TelemetryPoint> cp, int nSeg) {
+    /**
+     * Fallback without a usable Distance channel: equal sample slices. Segment length for the
+     * time estimate comes from the reference lap length (integrated from speed when needed).
+     */
+    private static List<SegmentDeltaDto> byIndex(List<TelemetryPoint> rp, List<TelemetryPoint> cp, int nSeg,
+                                                 double referenceLapLengthM) {
         int n = Math.min(rp.size(), cp.size());
         if (n < nSeg) {
             nSeg = Math.max(2, n / 2);
@@ -71,7 +77,7 @@ public class SegmentCompareService {
             double ac = avgSpeedIndexSlice(cp, i0, i1);
             double p0 = (double) i0 / (double) n;
             double p1 = (double) i1 / (double) n;
-            double estDist = 50.0 * (p1 - p0);
+            double estDist = referenceLapLengthM * (p1 - p0);
             double dt = deltaSecondsForSegment(estDist, ar, ac);
             out.add(new SegmentDeltaDto(k + 1, p0, p1, null, null, ar, ac, dt, false));
         }
