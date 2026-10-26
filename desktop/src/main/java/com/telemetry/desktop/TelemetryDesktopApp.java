@@ -7,22 +7,39 @@ import javafx.animation.PauseTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
-import javafx.geometry.Insets;
+import javafx.geometry.Dimension2D;
 import javafx.geometry.Pos;
+import javafx.geometry.Rectangle2D;
 import javafx.scene.Node;
 import javafx.scene.Scene;
+import javafx.scene.SnapshotParameters;
+import javafx.scene.canvas.Canvas;
+import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
-import javafx.scene.control.Tab;
-import javafx.scene.control.TabPane;
 import javafx.scene.control.TextArea;
+import javafx.scene.control.ToggleButton;
+import javafx.scene.control.ToggleGroup;
+import javafx.scene.control.Tooltip;
+import javafx.scene.image.Image;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyCodeCombination;
+import javafx.scene.input.KeyCombination;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Pane;
-import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
+import javafx.scene.paint.Color;
+import javafx.scene.paint.CycleMethod;
+import javafx.scene.paint.LinearGradient;
+import javafx.scene.paint.Stop;
+import javafx.scene.shape.StrokeLineCap;
+import javafx.scene.shape.StrokeLineJoin;
 import javafx.stage.FileChooser;
+import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 
@@ -40,9 +57,18 @@ import java.util.Locale;
  * there is no HTTP and no server dependency.
  *
  * <p>Command line: telemetry files to open, plus {@code --screenshots=<dir>} to render the main
- * views to PNG files and exit (used for documentation screenshots).
+ * views to PNG files and exit (used for documentation screenshots), and {@code --size=WIDTHxHEIGHT}
+ * to open the window at a fixed size instead of fitting it to the screen. With {@code --size} the
+ * screenshots keep the normal UI font, so the layout can be checked at a given screen size.
  */
 public class TelemetryDesktopApp extends Application {
+
+    /** Window size on large screens; smaller screens get a maximised window instead. */
+    private static final double PREF_WIDTH = 1600;
+    private static final double PREF_HEIGHT = 980;
+    /** Below this the three-column views no longer fit. */
+    private static final double MIN_WIDTH = 1024;
+    private static final double MIN_HEIGHT = 640;
 
     private final SessionModel model = new SessionModel();
     private final LapAnalysisView lapView = new LapAnalysisView(model);
@@ -50,53 +76,88 @@ public class TelemetryDesktopApp extends Application {
     private final TextArea reportArea = new TextArea();
     private final Label status = new Label("Ready. Open or drop CSV / LDX telemetry files.");
     private final ProgressBar progress = new ProgressBar();
-    private final TabPane tabs = new TabPane();
+    private final ToggleGroup nav = new ToggleGroup();
+    private final List<Node> views = new ArrayList<>();
     private Stage stage;
 
     @Override
     public void start(Stage stage) {
         this.stage = stage;
         stage.setTitle("Motorsport Telemetry Analyzer");
+        for (int size : new int[] {16, 24, 32, 48, 64, 256}) {
+            stage.getIcons().add(icon(size));
+        }
 
-        Label title = new Label("Telemetry Analyzer");
-        title.getStyleClass().add("hero-title");
-        Label tag = new Label("Offline · MoTeC CSV · generic CSV · LDX · lap compare");
-        tag.getStyleClass().add("hero-tag");
-        Button open = new Button("Open files…");
-        open.getStyleClass().add("btn-primary");
-        open.setOnAction(e -> chooseFiles());
-        Button export = new Button("Export view as PNG");
-        export.setOnAction(e -> exportCurrentView());
-        Pane spacer = new Pane();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox header = new HBox(16, title, tag, spacer, export, open);
-        header.setAlignment(Pos.CENTER_LEFT);
-        header.getStyleClass().add("hero");
-        header.setPadding(new Insets(12, 16, 12, 16));
+        List<Path> files = new ArrayList<>();
+        Path screenshots = null;
+        Dimension2D size = null;
+        for (String arg : getParameters().getRaw()) {
+            if (arg.startsWith("--screenshots=")) {
+                screenshots = Path.of(arg.substring("--screenshots=".length()));
+            } else if (arg.startsWith("--size=")) {
+                size = parseSize(arg.substring("--size=".length()));
+            } else if (!arg.startsWith("--")) {
+                files.add(Path.of(arg));
+            }
+        }
 
         reportArea.setEditable(false);
         reportArea.getStyleClass().add("code-out");
-        tabs.getTabs().addAll(
-                new Tab("Lap analysis", lapView.node()),
-                new Tab("Lap comparison", compareView.node()),
-                new Tab("Import report", reportArea));
-        tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        StackPane reportView = new StackPane(Ui.card("Import log", reportArea));
+        reportView.getStyleClass().add("view");
+        views.addAll(List.of(lapView.node(), compareView.node(), reportView));
+        StackPane content = new StackPane(views.toArray(Node[]::new));
+
+        Button open = new Button("Open files…");
+        open.getStyleClass().add("btn-primary");
+        open.setTooltip(new Tooltip("Open CSV / LD / LDX telemetry files (Ctrl+O)"));
+        open.setOnAction(e -> chooseFiles());
+        Button export = new Button("Export PNG");
+        export.setTooltip(new Tooltip("Save the current view as a PNG image"));
+        export.setOnAction(e -> exportCurrentView());
+        for (Button b : List.of(export, open)) {
+            b.setMinWidth(Region.USE_PREF_SIZE);
+        }
+        HBox actions = new HBox(8, export, open);
+        actions.setAlignment(Pos.CENTER_RIGHT);
+        actions.setMinWidth(Region.USE_PREF_SIZE);
+        HBox navBar = new HBox(navButton("Lap analysis"), navButton("Lap comparison"), navButton("Import report"));
+        navBar.getStyleClass().add("nav");
+        nav.selectedToggleProperty().addListener((o, old, now) -> {
+            if (now == null) {
+                nav.selectToggle(old); // one view is always shown
+                return;
+            }
+            int index = nav.getToggles().indexOf(now);
+            for (int i = 0; i < views.size(); i++) {
+                views.get(i).setVisible(i == index);
+            }
+        });
+        showView(0);
+        HBox header = new HBox(20, brand(), navBar, Ui.spacer(), actions);
+        header.setAlignment(Pos.CENTER_LEFT);
+        header.getStyleClass().add("app-bar");
 
         progress.setVisible(false);
+        progress.managedProperty().bind(progress.visibleProperty());
         progress.setPrefWidth(160);
-        HBox statusBar = new HBox(10, progress, status);
+        status.setMinWidth(0);
+        Label hint = new Label("Drop telemetry files anywhere  ·  Ctrl+O to open");
+        hint.setMinWidth(Region.USE_PREF_SIZE);
+        HBox statusBar = new HBox(10, progress, status, Ui.spacer(), hint);
         statusBar.setAlignment(Pos.CENTER_LEFT);
         statusBar.getStyleClass().add("status-bar");
-        statusBar.setPadding(new Insets(6, 12, 6, 12));
 
-        BorderPane root = new BorderPane(tabs, header, null, statusBar, null);
+        BorderPane root = new BorderPane(content, header, null, statusBar, null);
         root.getStyleClass().add("root-pane");
 
-        Scene scene = new Scene(root, 1600, 980);
+        Scene scene = new Scene(root);
         var css = getClass().getResource("/desktop.css");
         if (css != null) {
             scene.getStylesheets().add(css.toExternalForm());
         }
+        scene.setFill(Color.web("#07090d"));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.O, KeyCombination.SHORTCUT_DOWN), this::chooseFiles);
         scene.setOnDragOver(e -> {
             if (e.getDragboard().hasFiles()) {
                 e.acceptTransferModes(TransferMode.COPY);
@@ -112,28 +173,118 @@ public class TelemetryDesktopApp extends Application {
             e.consume();
         });
         stage.setScene(scene);
-        stage.show();
 
-        List<Path> files = new ArrayList<>();
-        Path screenshots = null;
-        for (String arg : getParameters().getRaw()) {
-            if (arg.startsWith("--screenshots=")) {
-                screenshots = Path.of(arg.substring("--screenshots=".length()));
-            } else if (!arg.startsWith("--")) {
-                files.add(Path.of(arg));
-            }
-        }
-        if (screenshots != null) {
+        if (size != null) {
+            stage.setWidth(size.getWidth());
+            stage.setHeight(size.getHeight());
+        } else if (screenshots != null) {
             // figures for print: a smaller window with a larger font keeps the UI text legible
             // when the screenshot is scaled down to the page width
             root.setStyle("-fx-font-size: 14px;");
             stage.setWidth(1280);
             stage.setHeight(860);
+        } else {
+            fitToScreen(stage);
         }
+        stage.show();
+
         if (!files.isEmpty()) {
             Path shotDir = screenshots;
             importFiles(files, shotDir == null ? null : () -> renderScreenshots(shotDir));
         }
+    }
+
+    /**
+     * Never larger than the work area of the primary screen: large screens get a centred window
+     * of the preferred size, smaller ones (laptops) a maximised window.
+     */
+    private static void fitToScreen(Stage stage) {
+        Rectangle2D screen = Screen.getPrimary().getVisualBounds();
+        boolean small = screen.getWidth() < PREF_WIDTH || screen.getHeight() < PREF_HEIGHT;
+        // size restored when a maximised window is un-maximised
+        double w = small ? Math.floor(screen.getWidth() * 0.9) : PREF_WIDTH;
+        double h = small ? Math.floor(screen.getHeight() * 0.9) : PREF_HEIGHT;
+        stage.setMinWidth(Math.min(MIN_WIDTH, screen.getWidth()));
+        stage.setMinHeight(Math.min(MIN_HEIGHT, screen.getHeight()));
+        stage.setWidth(w);
+        stage.setHeight(h);
+        stage.setX(screen.getMinX() + (screen.getWidth() - w) / 2);
+        stage.setY(screen.getMinY() + (screen.getHeight() - h) / 2);
+        stage.setMaximized(small);
+    }
+
+    private static Dimension2D parseSize(String value) {
+        String[] parts = value.toLowerCase(Locale.ROOT).split("x");
+        try {
+            if (parts.length == 2) {
+                return new Dimension2D(Double.parseDouble(parts[0]), Double.parseDouble(parts[1]));
+            }
+        } catch (NumberFormatException ignored) {
+            // reported below
+        }
+        throw new IllegalArgumentException("--size expects WIDTHxHEIGHT, e.g. --size=1536x912, got: " + value);
+    }
+
+    /** Logo, product name, offline badge and the supported formats, as the web client's header. */
+    private static HBox brand() {
+        Label title = new Label("TELEMETRY ANALYZER");
+        title.getStyleClass().add("brand-title");
+        Label badge = new Label("OFFLINE");
+        badge.getStyleClass().add("brand-badge");
+        HBox name = new HBox(8, title, badge);
+        name.setAlignment(Pos.CENTER_LEFT);
+        Label tag = new Label("MoTeC CSV · generic CSV · LDX · lap compare");
+        tag.getStyleClass().add("brand-tag");
+        VBox text = new VBox(0, name, tag);
+        text.setAlignment(Pos.CENTER_LEFT);
+        HBox brand = new HBox(12, logo(34), text);
+        brand.setAlignment(Pos.CENTER_LEFT);
+        brand.setMinWidth(Region.USE_PREF_SIZE);
+        return brand;
+    }
+
+    /** Brand mark: a speed trace (straight, braking, exit) on a red tile. Also the window icon. */
+    private static Canvas logo(double size) {
+        Canvas canvas = new Canvas(size, size);
+        GraphicsContext g = canvas.getGraphicsContext2D();
+        g.setFill(new LinearGradient(0, 0, 0, 1, true, CycleMethod.NO_CYCLE,
+                new Stop(0, Color.web("#ff4a3a")), new Stop(1, Color.web("#c42a1f"))));
+        g.fillRoundRect(0, 0, size, size, size * 0.42, size * 0.42);
+        g.setStroke(Color.WHITE);
+        g.setLineWidth(Math.max(1.6, size * 0.1));
+        g.setLineCap(StrokeLineCap.ROUND);
+        g.setLineJoin(StrokeLineJoin.ROUND);
+        double[] xs = {0.18, 0.44, 0.56, 0.82};
+        double[] ys = {0.70, 0.28, 0.70, 0.36};
+        for (int i = 0; i < xs.length; i++) {
+            xs[i] *= size;
+            ys[i] *= size;
+        }
+        g.strokePolyline(xs, ys, xs.length);
+        return canvas;
+    }
+
+    private static Image icon(int size) {
+        SnapshotParameters params = new SnapshotParameters();
+        params.setFill(Color.TRANSPARENT);
+        return logo(size).snapshot(params, null);
+    }
+
+    private ToggleButton navButton(String text) {
+        ToggleButton b = new ToggleButton(text.toUpperCase(Locale.ROOT));
+        b.setToggleGroup(nav);
+        b.getStyleClass().add("nav-tab");
+        b.setMaxHeight(Double.MAX_VALUE);
+        b.setMinWidth(Region.USE_PREF_SIZE);
+        return b;
+    }
+
+    private void showView(int index) {
+        nav.selectToggle(nav.getToggles().get(index));
+    }
+
+    private Node currentView() {
+        return views.get(nav.getToggles().indexOf(nav.getSelectedToggle()));
     }
 
     private void chooseFiles() {
@@ -184,7 +335,7 @@ public class TelemetryDesktopApp extends Application {
                 lapView.select(last);
                 compareView.selectDefaults();
             } else {
-                tabs.getSelectionModel().select(2);
+                showView(2);
             }
             if (afterImport != null) {
                 afterImport.run();
@@ -195,7 +346,7 @@ public class TelemetryDesktopApp extends Application {
             Throwable ex = task.getException();
             status.setText("Import failed: " + (ex == null ? "unknown error" : ex.getMessage()));
             reportArea.appendText(timestamp() + " Import failed: " + ex + "\n");
-            tabs.getSelectionModel().select(2);
+            showView(2);
         });
         Thread worker = new Thread(task, "telemetry-import");
         worker.setDaemon(true);
@@ -222,7 +373,7 @@ public class TelemetryDesktopApp extends Application {
     }
 
     private void exportCurrentView() {
-        Node node = tabs.getSelectionModel().getSelectedItem().getContent();
+        Node node = currentView();
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Export view as PNG");
         chooser.setInitialFileName("telemetry-view.png");
@@ -245,22 +396,23 @@ public class TelemetryDesktopApp extends Application {
         steps.add(() -> {
             // same lap as the comparison reference, so the figures belong together
             lapView.select(model.sessions().getFirst());
-            tabs.getSelectionModel().select(0);
+            showView(0);
         });
         steps.add(() -> {
-            save(tabs.getSelectionModel().getSelectedItem().getContent(), dir.resolve("desktop-lap-analysis.png"));
+            save(stage.getScene().getRoot(), dir.resolve("desktop-window.png"));
+            save(currentView(), dir.resolve("desktop-lap-analysis.png"));
             save(lapView.trackMap(), dir.resolve("desktop-track-map-speed.png"));
-            tabs.getSelectionModel().select(1);
+            showView(1);
             compareView.compare();
         });
         steps.add(() -> {
             save(compareView.node(), dir.resolve("desktop-lap-comparison.png"));
             save(compareView.charts(), dir.resolve("desktop-compare-charts.png"));
             save(compareView.trackMap(), dir.resolve("desktop-track-map-delta.png"));
-            tabs.getSelectionModel().select(2);
+            showView(2);
         });
         steps.add(() -> {
-            save(reportArea, dir.resolve("desktop-import-report.png"));
+            save(currentView(), dir.resolve("desktop-import-report.png"));
             Platform.exit();
         });
         runSteps(steps, 0);

@@ -9,7 +9,6 @@ import com.telemetry.analyzer.domain.SessionData;
 import com.telemetry.analyzer.dto.SegmentDeltaDto;
 import com.telemetry.desktop.SessionModel.LapAnalysis;
 import javafx.collections.FXCollections;
-import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -18,21 +17,21 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
+import javafx.scene.control.OverrunStyle;
 import javafx.scene.control.SplitPane;
-import javafx.scene.control.Tab;
-import javafx.scene.control.TabPane;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
-import javafx.scene.layout.BorderPane;
-import javafx.scene.layout.GridPane;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -61,17 +60,19 @@ final class LapComparisonView {
 
     private final LineChart<Number, Number> speed = ChartUtil.lineChart("Speed (km/h)", false);
     private final LineChart<Number, Number> delta = ChartUtil.lineChart("Δt (s)", false);
-    private final LineChart<Number, Number> throttle = ChartUtil.lineChart("Throttle (%)", false);
-    private final LineChart<Number, Number> brake = ChartUtil.lineChart("Brake (%)", true);
+    private final LineChart<Number, Number> throttle = ChartUtil.lineChart("Throttle %", false);
+    private final LineChart<Number, Number> brake = ChartUtil.lineChart("Brake %", true);
     private final ChartCursor cursor = new ChartCursor(this::onCursor);
-    private final Label readout = new Label(" ");
+    private final Label readout = new Label();
+    private final Label refLegend = Ui.legend("", "dot-ref");
+    private final Label cmpLegend = Ui.legend("", "dot-cmp");
 
     private final TrackMapView map = new TrackMapView();
     private final TableView<SegmentDeltaDto> sectorTable = new TableView<>();
     private final TableView<BrakingPointDelta> brakingTable = new TableView<>();
 
-    private final BorderPane root = new BorderPane();
-    private final VBox chartBox;
+    private final VBox root;
+    private final VBox chartCard;
     private AlignedLapComparison comparison;
 
     LapComparisonView(SessionModel model) {
@@ -81,11 +82,13 @@ final class LapComparisonView {
             c.setCellFactory(l -> sessionCell());
             c.setButtonCell(sessionCell());
             c.setPrefWidth(230);
+            c.setMinWidth(110);
         }
         for (ComboBox<LapData> c : List.of(refLap, cmpLap)) {
             c.setCellFactory(l -> lapCell());
             c.setButtonCell(lapCell());
-            c.setPrefWidth(200);
+            c.setPrefWidth(190);
+            c.setMinWidth(150);
         }
         refSession.setOnAction(e -> fillLaps(refSession.getValue(), refLap, 0));
         cmpSession.setOnAction(e -> fillLaps(cmpSession.getValue(), cmpLap, cmpSession.getValue() == refSession.getValue() ? 1 : 0));
@@ -95,49 +98,73 @@ final class LapComparisonView {
         run.setOnAction(e -> compare());
         Button swap = new Button("Swap");
         swap.setOnAction(e -> swap());
+        run.setMinWidth(Region.USE_PREF_SIZE);
+        swap.setMinWidth(Region.USE_PREF_SIZE);
 
-        GridPane pickers = new GridPane();
-        pickers.setHgap(10);
-        pickers.setVgap(6);
-        pickers.addRow(0, muted("Reference"), refSession, refLap);
-        pickers.addRow(1, muted("Compare"), cmpSession, cmpLap, run, swap);
-        status.getStyleClass().add("muted");
+        HBox pickers = new HBox(14,
+                picker("Reference", "dot-ref", refSession, refLap),
+                picker("Compare", "dot-cmp", cmpSession, cmpLap),
+                Ui.spacer(), swap, run);
+        pickers.setAlignment(Pos.CENTER_LEFT);
+        status.getStyleClass().addAll("muted", "compare-status");
+        status.setMinWidth(0);
+        status.setTextOverrun(OverrunStyle.ELLIPSIS);
+        Tooltip statusTip = new Tooltip();
+        statusTip.textProperty().bind(status.textProperty());
+        status.setTooltip(statusTip);
+        VBox toolbar = new VBox(6, pickers, status);
+        toolbar.getStyleClass().addAll("card", "toolbar");
 
         HBox tiles = new HBox(10,
-                tile("Reference lap", refTime, "tile-ref"),
-                tile("Compare lap", cmpTime, "tile-cmp"),
-                tile("Δ lap time", deltaTime, null),
-                tile("Biggest gain", bestSector, null),
-                tile("Biggest loss", worstSector, null));
-        VBox top = new VBox(8, pickers, tiles, status);
-        top.setPadding(new Insets(10));
+                Ui.tile("Reference lap", refTime, "tile-ref"),
+                Ui.tile("Compare lap", cmpTime, "tile-cmp"),
+                Ui.tile("Δ lap time", deltaTime, "tile-delta"),
+                Ui.tile("Biggest gain", bestSector, null),
+                Ui.tile("Biggest loss", worstSector, null));
+        tiles.setMinHeight(Region.USE_PREF_SIZE);
 
         ChartUtil.fixedY(throttle, 0, 100, 25);
         ChartUtil.fixedY(brake, 0, 100, 25);
         delta.setHorizontalZeroLineVisible(true);
         delta.getStyleClass().add("delta-chart");
-        speed.setMinHeight(190);
-        speed.setLegendVisible(true);
-        chartBox = new VBox(2, cursor.attach(speed), cursor.attach(delta), cursor.attach(throttle),
-                cursor.attach(brake), readout);
-        for (Node n : chartBox.getChildren()) {
+        // minimums sized so the rotated axis labels still fit at 1280 x 720
+        speed.setMinHeight(96);
+        speed.setPrefHeight(230);
+        delta.setMinHeight(60);
+        delta.setPrefHeight(150);
+        throttle.setMinHeight(70);
+        throttle.setPrefHeight(130);
+        brake.setMinHeight(96);
+        brake.setPrefHeight(170);
+        VBox charts = new VBox(8, cursor.attach(speed), cursor.attach(delta), cursor.attach(throttle),
+                cursor.attach(brake));
+        for (Node n : charts.getChildren()) {
             VBox.setVgrow(n, Priority.ALWAYS);
         }
-        VBox.setVgrow(readout, Priority.NEVER);
         readout.getStyleClass().add("readout");
-        chartBox.setPadding(new Insets(6));
+        readout.setMinWidth(0);
+        for (Label l : List.of(refLegend, cmpLegend)) {
+            l.setVisible(false);
+            l.setMinWidth(Region.USE_PREF_SIZE);
+        }
+        chartCard = Ui.card("Traces", ChartUtil.scrollable(charts), readout, Ui.spacer(), refLegend, cmpLegend);
+        chartCard.setMinWidth(380);
+        ChartUtil.readout(readout, null);
 
         setupTables();
-        TabPane tables = new TabPane(new Tab("Sectors", sectorTable), new Tab("Braking points", brakingTable));
-        tables.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        SplitPane right = new SplitPane(map, tables);
+        SplitPane right = new SplitPane(Ui.card("Track map", map),
+                Ui.cardTabs(Ui.tab("Sectors", sectorTable), Ui.tab("Braking points", brakingTable)));
         right.setOrientation(Orientation.VERTICAL);
-        right.setDividerPositions(0.55);
+        right.setDividerPositions(0.52);
+        right.setMinWidth(300);
+        right.setPrefWidth(440);
+        right.setMaxWidth(560);
 
-        SplitPane center = new SplitPane(chartBox, right);
-        center.setDividerPositions(0.64);
-        root.setTop(top);
-        root.setCenter(center);
+        SplitPane center = new SplitPane(chartCard, right);
+        center.setDividerPositions(0.67);
+        root = new VBox(10, toolbar, tiles, center);
+        VBox.setVgrow(center, Priority.ALWAYS);
+        root.getStyleClass().add("view");
     }
 
     Node node() {
@@ -149,7 +176,7 @@ final class LapComparisonView {
     }
 
     Node charts() {
-        return chartBox;
+        return chartCard;
     }
 
     /**
@@ -211,6 +238,10 @@ final class LapComparisonView {
         ChartUtil.show(brake, ChartUtil.series(refName, d, comparison.referenceBrake()),
                 ChartUtil.series(cmpName, d, comparison.compareBrake()));
 
+        refLegend.setText(refName);
+        cmpLegend.setText(cmpName);
+        refLegend.setVisible(true);
+        cmpLegend.setVisible(true);
         refTime.setText(Formats.lapTime(comparison.referenceLapTime()));
         cmpTime.setText(Formats.lapTime(comparison.compareLapTime()));
         deltaTime.setText(Formats.delta(comparison.lapTimeDelta()));
@@ -239,7 +270,7 @@ final class LapComparisonView {
 
         sectorTable.setItems(FXCollections.observableArrayList(sectors));
         brakingTable.setItems(FXCollections.observableArrayList(braking));
-        status.setText(String.format("Aligned on %s distance, %d points every %.0f m; compare lap length scaled %.4f×. "
+        status.setText(String.format(Locale.ROOT, "Aligned on %s distance, %d points every %.0f m; compare lap length scaled %.4f×. "
                         + "Δt > 0: compare lap behind.",
                 comparison.distanceFromChannel() ? "channel" : "integrated", comparison.size(),
                 LapComparator.DEFAULT_STEP_METERS, comparison.referenceLapLength() / comparison.compareLapLength()));
@@ -249,11 +280,11 @@ final class LapComparisonView {
         cursor.show(distance);
         map.setCursorDistance(distance);
         if (comparison == null || Double.isNaN(distance)) {
-            readout.setText(" ");
+            ChartUtil.readout(readout, null);
             return;
         }
         int i = Math.clamp(ChartUtil.indexAtOrAfter(comparison.distance(), distance), 0, comparison.size() - 1);
-        readout.setText(String.format("%.0f m  ·  ref %.0f km/h  ·  cmp %.0f km/h  ·  Δt %+.3f s",
+        ChartUtil.readout(readout, String.format(Locale.ROOT, "%4.0f m  ·  ref %3.0f km/h  ·  cmp %3.0f km/h  ·  Δt %+.3f s",
                 comparison.distance()[i], comparison.referenceSpeed()[i], comparison.compareSpeed()[i],
                 comparison.deltaTime()[i]));
     }
@@ -308,33 +339,33 @@ final class LapComparisonView {
     }
 
     private void setupTables() {
-        TableColumn<SegmentDeltaDto, String> dt = LapAnalysisView.col("Δt (s)", s -> Formats.signed(s.deltaSeconds(), 3));
+        TableColumn<SegmentDeltaDto, String> dt = Ui.col("Δt (s)", s -> Formats.signed(s.deltaSeconds(), 3));
         dt.setCellFactory(c -> signedCell());
         sectorTable.getColumns().setAll(List.of(
-                LapAnalysisView.col("Sector", s -> "S" + s.index()),
-                LapAnalysisView.col("From–to (m)", s -> Formats.number(s.distanceStartM(), 0) + "–" + Formats.number(s.distanceEndM(), 0)),
-                LapAnalysisView.col("Ref avg (km/h)", s -> Formats.number(s.referenceAvgSpeedKmh(), 1)),
-                LapAnalysisView.col("Cmp avg (km/h)", s -> Formats.number(s.compareAvgSpeedKmh(), 1)),
+                Ui.keyCol("Sector", s -> "S" + s.index()),
+                Ui.col("From–to (m)", s -> Formats.number(s.distanceStartM(), 0) + "–" + Formats.number(s.distanceEndM(), 0)),
+                Ui.col("Ref avg (km/h)", s -> Formats.number(s.referenceAvgSpeedKmh(), 1)),
+                Ui.col("Cmp avg (km/h)", s -> Formats.number(s.compareAvgSpeedKmh(), 1)),
                 dt));
-        sectorTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
-        sectorTable.setPlaceholder(new Label("Run a comparison"));
+        sectorTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+        sectorTable.setPlaceholder(Ui.muted("Run a comparison"));
         sectorTable.getSelectionModel().selectedItemProperty().addListener((o, a, s) -> {
             if (s != null) {
                 onCursor(s.distanceStartM());
             }
         });
 
-        TableColumn<BrakingPointDelta, String> start = LapAnalysisView.col("Δ brake point (m)", b -> Formats.signed(b.startDeltaMeters(), 1));
+        TableColumn<BrakingPointDelta, String> start = Ui.col("Δ start (m)", b -> Formats.signed(b.startDeltaMeters(), 1));
         start.setCellFactory(c -> signedCell());
         brakingTable.getColumns().setAll(List.of(
-                LapAnalysisView.col("Zone", b -> "B" + b.referenceZone()),
-                LapAnalysisView.col("Ref start (m)", b -> Formats.number(b.referenceStart(), 0)),
-                LapAnalysisView.col("Cmp start (m)", b -> Formats.number(b.compareStart(), 0)),
+                Ui.keyCol("Zone", b -> "B" + b.referenceZone()),
+                Ui.col("Ref start (m)", b -> Formats.number(b.referenceStart(), 0)),
+                Ui.col("Cmp start (m)", b -> Formats.number(b.compareStart(), 0)),
                 start,
-                LapAnalysisView.col("Δ min speed (km/h)", b -> Formats.signed(b.minSpeedDelta(), 1)),
-                LapAnalysisView.col("Δ duration (s)", b -> Formats.signed(b.durationDelta(), 2))));
-        brakingTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
-        brakingTable.setPlaceholder(new Label("Run a comparison"));
+                Ui.col("Δ min speed (km/h)", b -> Formats.signed(b.minSpeedDelta(), 1)),
+                Ui.col("Δ time (s)", b -> Formats.signed(b.durationDelta(), 2))));
+        brakingTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+        brakingTable.setPlaceholder(Ui.muted("Run a comparison"));
         brakingTable.getSelectionModel().selectedItemProperty().addListener((o, a, b) -> {
             if (b != null) {
                 onCursor(b.referenceStart());
@@ -344,12 +375,11 @@ final class LapComparisonView {
 
     /** Colours "+x" red (compare slower / later) and "-x" green. */
     private static <T> TableCell<T, String> signedCell() {
-        return new TableCell<>() {
+        return new Ui.FitCell<>() {
             @Override
             protected void updateItem(String item, boolean empty) {
                 super.updateItem(item, empty);
                 getStyleClass().removeAll("loss", "gain");
-                setText(empty ? null : item);
                 if (!empty && item != null) {
                     getStyleClass().add(item.startsWith("+") ? "loss" : "gain");
                 }
@@ -362,25 +392,16 @@ final class LapComparisonView {
         l.getStyleClass().add(value > 0 ? "loss" : "gain");
     }
 
-    private static VBox tile(String title, Label value, String accent) {
-        Label t = new Label(title);
-        t.getStyleClass().add("tile-title");
-        value.getStyleClass().add("tile-value");
-        VBox box = new VBox(2, t, value);
-        box.getStyleClass().add("tile");
-        if (accent != null) {
-            box.getStyleClass().add(accent);
-        }
+    /** Label in the chart colour of that lap, followed by the session and lap pickers. */
+    private static HBox picker(String label, String dot, ComboBox<SessionData> session, ComboBox<LapData> lap) {
+        Label l = Ui.legend(label.toUpperCase(Locale.ROOT), dot);
+        l.getStyleClass().add("field-label");
+        l.setMinWidth(Region.USE_PREF_SIZE);
+        HBox box = new HBox(6, l, session, lap);
         box.setAlignment(Pos.CENTER_LEFT);
-        HBox.setHgrow(box, Priority.ALWAYS);
-        box.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(session, Priority.SOMETIMES);
+        HBox.setHgrow(lap, Priority.SOMETIMES);
         return box;
-    }
-
-    private static Label muted(String text) {
-        Label l = new Label(text);
-        l.getStyleClass().add("muted");
-        return l;
     }
 
     private static ListCell<SessionData> sessionCell() {

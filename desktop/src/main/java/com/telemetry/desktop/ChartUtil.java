@@ -5,7 +5,13 @@ import javafx.collections.ObservableList;
 import javafx.scene.chart.LineChart;
 import javafx.scene.chart.NumberAxis;
 import javafx.scene.chart.XYChart;
+import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
+import javafx.scene.layout.Region;
 import javafx.util.StringConverter;
+
+import java.math.BigDecimal;
+import java.util.Locale;
 
 /**
  * Line chart factory and series construction. Series are thinned with min/max bucketing so that
@@ -16,6 +22,8 @@ final class ChartUtil {
 
     /** Buckets per series; each bucket contributes its minimum and maximum. */
     static final int MAX_BUCKETS = 1_200;
+
+    private static final String READOUT_HINT = "Hover the charts to read values";
 
     private ChartUtil() {
     }
@@ -33,7 +41,7 @@ final class ChartUtil {
                 // the upper bound is the exact lap length; only round ticks get a label
                 double v = value.doubleValue();
                 double tick = x.getTickUnit();
-                return Math.abs(v / tick - Math.rint(v / tick)) < 1e-6 ? String.format("%.0f", v) : "";
+                return Math.abs(v / tick - Math.rint(v / tick)) < 1e-6 ? String.format(Locale.ROOT, "%.0f", v) : "";
             }
 
             @Override
@@ -45,15 +53,52 @@ final class ChartUtil {
         y.setLabel(yLabel);
         y.setAnimated(false);
         y.setForceZeroInRange(false);
+        y.setMinorTickVisible(false);
+        y.setTickLabelFormatter(new StringConverter<>() {
+            @Override
+            public String toString(Number value) {
+                // as many decimals as the tick unit has, with a decimal point like the rest of the UI
+                double tick = y.getTickUnit();
+                int decimals = Math.max(0, BigDecimal.valueOf(tick).stripTrailingZeros().scale());
+                double v = Math.abs(value.doubleValue()) < tick * 1e-6 ? 0 : value.doubleValue(); // no "-0.0"
+                return String.format(Locale.ROOT, "%." + Math.min(decimals, 3) + "f", v);
+            }
+
+            @Override
+            public Number fromString(String s) {
+                return Double.parseDouble(s);
+            }
+        });
         LineChart<Number, Number> chart = new LineChart<>(x, y);
         chart.setAnimated(false);
         chart.setCreateSymbols(false);
         chart.setLegendVisible(false);
         chart.setHorizontalGridLinesVisible(true);
-        chart.setVerticalGridLinesVisible(false);
+        chart.setVerticalGridLinesVisible(true);
         chart.getStyleClass().add("telemetry-chart");
-        chart.setMinHeight(110);
+        chart.setMinHeight(70);
         return chart;
+    }
+
+    /**
+     * Wraps a stack of charts: the charts shrink with the window down to their minimum heights,
+     * below that the stack scrolls instead of squeezing them further.
+     */
+    static ScrollPane scrollable(Region charts) {
+        ScrollPane pane = new ScrollPane(charts);
+        pane.setFitToWidth(true);
+        pane.setFitToHeight(true);
+        pane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        return pane;
+    }
+
+    /** Cursor readout under the charts; {@code null} shows a usage hint instead. */
+    static void readout(Label label, String text) {
+        label.getStyleClass().remove("idle");
+        if (text == null) {
+            label.getStyleClass().add("idle");
+        }
+        label.setText(text == null ? READOUT_HINT : text);
     }
 
     static void fixedY(LineChart<Number, Number> chart, double lower, double upper, double tick) {
