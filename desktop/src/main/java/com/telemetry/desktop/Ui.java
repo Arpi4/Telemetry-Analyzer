@@ -1,22 +1,28 @@
 package com.telemetry.desktop;
 
+import javafx.application.Platform;
+import javafx.beans.InvalidationListener;
 import javafx.beans.property.SimpleObjectProperty;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
+import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
+import javafx.scene.control.TableView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Font;
 import javafx.scene.text.Text;
+import javafx.util.Callback;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.function.DoubleUnaryOperator;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -30,8 +36,10 @@ final class Ui {
     /** "Start (m)" → name "Start", unit "m". */
     private static final Pattern UNIT = Pattern.compile("(.+) \\((.+)\\)");
 
-    /** Left + right padding of a column header label, see desktop.css. */
-    private static final double HEADER_PADDING = 18;
+    /** Left + right padding of a column header label, see desktop.css, plus rounding slack. */
+    private static final double HEADER_PADDING = 14;
+    /** Thickness of a scroll bar, see desktop.css. */
+    private static final double SCROLL_BAR = 10;
 
     private Ui() {
     }
@@ -120,8 +128,89 @@ final class Ui {
     }
 
     /**
+     * Columns share the table width while their minimum widths fit; a table too narrow for them
+     * scrolls sideways instead of cutting off its last columns (constrained tables never scroll).
+     */
+    static <T> void fitColumns(TableView<T> table) {
+        InvalidationListener update = o -> {
+            double need = SCROLL_BAR + table.snappedLeftInset() + table.snappedRightInset();
+            for (TableColumn<T, ?> c : table.getColumns()) {
+                need += c.getMinWidth();
+            }
+            Callback<TableView.ResizeFeatures, Boolean> policy = need <= table.getWidth()
+                    ? TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS
+                    : TableView.UNCONSTRAINED_RESIZE_POLICY;
+            if (table.getColumnResizePolicy() != policy) {
+                if (policy == TableView.UNCONSTRAINED_RESIZE_POLICY) {
+                    // scroll no further than needed
+                    for (TableColumn<T, ?> c : table.getColumns()) {
+                        c.setPrefWidth(c.getMinWidth());
+                    }
+                }
+                table.setColumnResizePolicy(policy);
+            }
+        };
+        table.widthProperty().addListener(update);
+        for (TableColumn<T, ?> c : table.getColumns()) {
+            c.minWidthProperty().addListener(update);
+        }
+        update.invalidated(null);
+    }
+
+    /**
+     * Splits a column into the track map (top) and a tab card (bottom). The bottom pane gets the
+     * height {@code bottomHeight} asks for, given the most it may take while the map keeps
+     * {@code minTop} of the column; {@code NaN} leaves the divider alone. Re-fitted whenever the
+     * column is resized and when the returned action runs; the divider stays draggable.
+     */
+    static Runnable fitBottom(SplitPane split, double minTop, DoubleUnaryOperator bottomHeight) {
+        Runnable fit = () -> {
+            double total = split.getHeight() - split.snappedTopInset() - split.snappedBottomInset();
+            Node divider = split.lookup(".split-pane-divider");
+            if (total <= 0 || divider == null) {
+                return;
+            }
+            // the skin sizes dividers by their horizontal padding in both orientations, and
+            // centres a divider on its position
+            double half = divider.prefWidth(-1) / 2;
+            double topMin = split.getItems().getFirst().minHeight(-1);
+            double max = Math.min(total * (1 - minTop) - half, total - topMin - 2 * half);
+            double bottom = bottomHeight.applyAsDouble(max);
+            if (!Double.isNaN(bottom)) {
+                split.setDividerPositions(Math.max(minTop, (total - half - Math.min(bottom, max)) / total));
+            }
+        };
+        // after the layout pass, in which the skin spreads a size change over the panes itself
+        Runnable later = () -> Platform.runLater(fit);
+        split.heightProperty().addListener((o, a, h) -> later.run());
+        return later;
+    }
+
+    /** Height of a card tab pane around its content: borders, tab strip and content padding. */
+    static double tabChrome(TabPane pane) {
+        Node strip = pane.lookup(".tab-header-area");
+        Node area = pane.lookup(".tab-content-area");
+        if (!(strip instanceof Region s) || !(area instanceof Region a) || s.getHeight() <= 0) {
+            return Double.NaN;
+        }
+        return pane.snappedTopInset() + pane.snappedBottomInset() + s.getHeight()
+                + a.snappedTopInset() + a.snappedBottomInset();
+    }
+
+    /**
+     * Height of {@code rows} equal rows ({@code row} high, {@code gap} apart) below a fixed
+     * {@code head}: all of them when they fit into {@code max}, otherwise as many whole rows as
+     * fit, so a scrolled list ends on a row edge instead of cutting one in half.
+     */
+    static double wholeRows(double max, double head, double row, double gap, int rows) {
+        int fit = (int) Math.floor((max - head + gap) / (row + gap));
+        int shown = Math.clamp(fit, 1, Math.max(1, rows));
+        return head + shown * (row + gap) - gap;
+    }
+
+    /**
      * Table cell that raises its column's minimum width to the rendered text, so values are
-     * never cut off at any font size; a table too narrow for its columns scrolls sideways.
+     * never cut off at any font size; see {@link #fitColumns} for tables too narrow for that.
      */
     static class FitCell<T> extends TableCell<T, String> {
         @Override
@@ -172,7 +261,7 @@ final class Ui {
         }
     }
 
-    private static double textWidth(String text, Font font) {
+    static double textWidth(String text, Font font) {
         Text t = new Text(text);
         t.setFont(font);
         return t.getLayoutBounds().getWidth();

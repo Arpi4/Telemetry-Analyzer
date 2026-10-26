@@ -12,7 +12,6 @@ import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
 import javafx.geometry.HPos;
 import javafx.geometry.Orientation;
-import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.chart.LineChart;
 import javafx.scene.control.Label;
@@ -20,12 +19,13 @@ import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
+import javafx.scene.control.TabPane;
 import javafx.scene.control.TableView;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
-import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 
@@ -44,16 +44,19 @@ final class LapAnalysisView {
     private final ListView<SessionData> sessionList = new ListView<>();
     private final ListView<LapData> lapList = new ListView<>();
     private final GridPane summary = new GridPane();
-    private final Label readout = new Label();
+    private final ChartUtil.Readout readout = new ChartUtil.Readout();
 
     private final LineChart<Number, Number> speed = ChartUtil.lineChart("Speed (km/h)", false);
     private final LineChart<Number, Number> throttle = ChartUtil.lineChart("Throttle %", false);
     private final LineChart<Number, Number> brake = ChartUtil.lineChart("Brake %", false);
     private final LineChart<Number, Number> gear = ChartUtil.lineChart("Gear", true);
     private final ChartCursor cursor = new ChartCursor(this::onCursor);
+    private final ScrollPane chartStack;
 
-    private final TrackMapView map = new TrackMapView();
+    private final TrackMapView map = new TrackMapView("Select a lap to draw its track map.");
     private final GridPane metrics = new GridPane();
+    private final VBox metricsBox;
+    private final TabPane tables;
     private final TableView<BrakingZone> brakingTable = new TableView<>();
     private final TableView<CornerApex> cornerTable = new TableView<>();
 
@@ -70,7 +73,7 @@ final class LapAnalysisView {
         sessionList.setPrefHeight(124);
         sessionList.setMinHeight(96);
 
-        lapList.setCellFactory(l -> lapCell());
+        lapList.setCellFactory(l -> new LapCell(model, true));
         lapList.getSelectionModel().selectedItemProperty().addListener((o, a, lap) -> showLap(lap));
         lapList.setPlaceholder(placeholder("Pick a session"));
         lapList.setPrefHeight(160);
@@ -109,9 +112,11 @@ final class LapAnalysisView {
         for (Node n : charts.getChildren()) {
             VBox.setVgrow(n, Priority.ALWAYS);
         }
-        readout.getStyleClass().add("readout");
-        readout.setMinWidth(0);
-        VBox center = Ui.card("Channels", ChartUtil.scrollable(charts), readout);
+        chartStack = ChartUtil.scrollable(charts);
+        chartStack.setVisible(false);
+        readout.visibleProperty().bind(chartStack.visibleProperty());
+        VBox center = Ui.card("Channels", ChartUtil.withPlaceholder(chartStack, "Select a lap to plot its channels."),
+                readout);
         center.setMinWidth(380);
 
         setupTables();
@@ -124,24 +129,47 @@ final class LapAnalysisView {
         Label note = Ui.muted("Shares are time-weighted percentages of the lap time.");
         note.getStyleClass().add("metrics-note");
         note.setWrapText(true);
+        Label noMetrics = placeholder("Select a lap to see its driving metrics.");
+        for (Label l : List.of(note, noMetrics)) {
+            l.managedProperty().bind(l.visibleProperty());
+        }
         note.visibleProperty().bind(Bindings.isNotEmpty(metrics.getChildren()));
-        ScrollPane metricsScroll = new ScrollPane(new VBox(8, metrics, note));
+        noMetrics.visibleProperty().bind(Bindings.isEmpty(metrics.getChildren()));
+        metricsBox = new VBox(8, metrics, note, noMetrics);
+        ScrollPane metricsScroll = new ScrollPane(metricsBox);
         metricsScroll.setFitToWidth(true);
         metricsScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        SplitPane right = new SplitPane(Ui.card("Track map", map), Ui.cardTabs(
+        tables = Ui.cardTabs(
                 Ui.tab("Metrics", metricsScroll),
                 Ui.tab("Braking zones", brakingTable),
-                Ui.tab("Corners", cornerTable)));
+                Ui.tab("Corners", cornerTable));
+        SplitPane right = new SplitPane(Ui.card("Track map", map), tables);
         right.setOrientation(Orientation.VERTICAL);
         right.setDividerPositions(0.54);
-        right.setMinWidth(300);
+        right.setMinWidth(340); // the seven braking-zone columns without sideways scrolling
         right.setPrefWidth(440);
         right.setMaxWidth(560);
+        // the metrics get the room for all their tiles (or whole rows of them) below the map
+        Runnable fit = Ui.fitBottom(right, 0.45, this::metricsHeight);
+        metricsBox.heightProperty().addListener((o, a, h) -> fit.run());
 
         root = new SplitPane(left, center, right);
         root.getStyleClass().add("view");
         root.setDividerPositions(0.175, 0.71);
-        ChartUtil.readout(readout, null);
+    }
+
+    /** Height of the tab card that shows every metric tile, or whole rows of them within {@code max}. */
+    private double metricsHeight(double max) {
+        double chrome = Ui.tabChrome(tables);
+        if (Double.isNaN(chrome) || metrics.getChildren().isEmpty() || metricsBox.getHeight() <= 0) {
+            return Double.NaN;
+        }
+        if (chrome + metricsBox.getHeight() <= max) {
+            return chrome + metricsBox.getHeight() + 1;
+        }
+        Region tile = (Region) metrics.getChildren().getFirst();
+        return Ui.wholeRows(max, chrome + metrics.snappedTopInset(), tile.getHeight(), metrics.getVgap(),
+                (metrics.getChildren().size() + 1) / 2) + 1;
     }
 
     Node node() {
@@ -195,6 +223,7 @@ final class LapAnalysisView {
             return;
         }
         current = model.analyze(s, lap);
+        chartStack.setVisible(true);
         LapTrace t = current.trace();
         for (LineChart<Number, Number> c : List.of(speed, throttle, brake, gear)) {
             ChartUtil.xRange(c, t.lapLength());
@@ -227,15 +256,17 @@ final class LapAnalysisView {
         cursor.show(distance);
         map.setCursorDistance(distance);
         if (current == null || Double.isNaN(distance)) {
-            ChartUtil.readout(readout, null);
+            readout.show(null, null);
             return;
         }
         LapTrace t = current.trace();
         int i = Math.clamp(ChartUtil.indexAtOrAfter(t.distance(), distance), 0, t.size() - 1);
-        ChartUtil.readout(readout, String.format(Locale.ROOT,
-                "%4.0f m  ·  %s  ·  %3.0f km/h  ·  throttle %3.0f %%  ·  brake %3.0f %%  ·  gear %d",
-                t.distance()[i], Formats.lapTime(t.elapsed()[i]).replace("n/a", "0:00.000"), t.speed()[i],
-                t.throttle()[i], t.brake()[i], (int) t.gear()[i]));
+        String time = Formats.lapTime(t.elapsed()[i]).replace("n/a", "0:00.000");
+        // fixed-width fields keep the text still while the cursor moves; the compact form drops the time
+        readout.show(String.format(Locale.ROOT, "%4.0f m · %s · %3.0f km/h · throttle %3.0f %% · brake %3.0f %% · gear %d",
+                        t.distance()[i], time, t.speed()[i], t.throttle()[i], t.brake()[i], (int) t.gear()[i]),
+                String.format(Locale.ROOT, "%4.0f m · %3.0f km/h · thr %3.0f%% · brk %3.0f%% · gear %d",
+                        t.distance()[i], t.speed()[i], t.throttle()[i], t.brake()[i], (int) t.gear()[i]));
     }
 
     private void fillMetrics(DrivingStyleMetrics m, int zones, int corners) {
@@ -269,7 +300,7 @@ final class LapAnalysisView {
                 Ui.col("Min (km/h)", z -> Formats.number(z.minSpeed(), 0)),
                 Ui.col("Time (s)", z -> Formats.number(z.duration(), 2)),
                 Ui.col("Peak (%)", z -> Formats.number(z.peakBrake(), 0))));
-        brakingTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+        Ui.fitColumns(brakingTable);
         brakingTable.setPlaceholder(placeholder("No braking zones"));
         brakingTable.getSelectionModel().selectedItemProperty().addListener((o, a, z) -> {
             if (z != null) {
@@ -284,7 +315,7 @@ final class LapAnalysisView {
                 Ui.col("Entry (km/h)", c -> Formats.number(c.entrySpeed(), 0)),
                 Ui.col("Exit (km/h)", c -> Formats.number(c.exitSpeed(), 0)),
                 Ui.col("Gear", c -> String.valueOf(c.gear()))));
-        cornerTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
+        Ui.fitColumns(cornerTable);
         cornerTable.setPlaceholder(placeholder("No corners detected"));
         cornerTable.getSelectionModel().selectedItemProperty().addListener((o, a, c) -> {
             if (c != null) {
@@ -314,49 +345,6 @@ final class LapAnalysisView {
                 }
                 name.setText(s.sourceFile());
                 meta.setText(s.laps().size() + " laps  ·  " + model.completeLaps(s).size() + " complete");
-                setGraphic(box);
-            }
-        };
-    }
-
-    /** Lap id, a fastest / partial badge and the lap time; the fastest lap is purple as on timing screens. */
-    private ListCell<LapData> lapCell() {
-        return new ListCell<>() {
-            private final Label id = new Label();
-            private final Label badge = new Label();
-            private final Label time = new Label();
-            private final HBox box = new HBox(8, id, Ui.spacer(), badge, time);
-
-            {
-                id.getStyleClass().add("lap-id");
-                badge.getStyleClass().add("lap-badge");
-                badge.managedProperty().bind(badge.visibleProperty());
-                time.getStyleClass().add("lap-time");
-                box.setAlignment(Pos.CENTER_LEFT);
-            }
-
-            @Override
-            protected void updateItem(LapData lap, boolean empty) {
-                super.updateItem(lap, empty);
-                getStyleClass().removeAll("lap-fastest", "lap-incomplete");
-                setText(null);
-                if (empty || lap == null) {
-                    setGraphic(null);
-                    return;
-                }
-                id.setText(lap.lapId());
-                SessionData owner = model.sessionOf(lap);
-                LapAnalysis a = owner == null ? null : model.analyze(owner, lap);
-                time.setText(a == null ? "" : Formats.lapTime(a.trace().lapTime()));
-                boolean fastest = a != null && a.fastest();
-                boolean partial = a != null && !a.complete();
-                badge.setText(fastest ? "FASTEST" : "PARTIAL");
-                badge.setVisible(fastest || partial);
-                if (fastest) {
-                    getStyleClass().add("lap-fastest");
-                } else if (partial) {
-                    getStyleClass().add("lap-incomplete");
-                }
                 setGraphic(box);
             }
         };

@@ -8,6 +8,7 @@ import javafx.scene.chart.XYChart;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.util.StringConverter;
 
 import java.math.BigDecimal;
@@ -92,13 +93,56 @@ final class ChartUtil {
         return pane;
     }
 
-    /** Cursor readout under the charts; {@code null} shows a usage hint instead. */
-    static void readout(Label label, String text) {
-        label.getStyleClass().remove("idle");
-        if (text == null) {
-            label.getStyleClass().add("idle");
+    /** Shows {@code text} instead of the charts while they are hidden (nothing loaded yet). */
+    static StackPane withPlaceholder(Region charts, String text) {
+        Label hint = new Label(text);
+        hint.getStyleClass().addAll("muted", "placeholder-text");
+        hint.setWrapText(true);
+        hint.visibleProperty().bind(charts.visibleProperty().not());
+        return new StackPane(charts, hint);
+    }
+
+    /**
+     * Cursor readout in the chart card header. It shows the full text when the header has room
+     * for it and the compact form otherwise, so small windows still show every value.
+     */
+    static final class Readout extends Label {
+        private String full = READOUT_HINT;
+        private String compact = READOUT_HINT;
+
+        Readout() {
+            getStyleClass().add("readout");
+            setMinWidth(0);
+            show(null, null);
         }
-        label.setText(text == null ? READOUT_HINT : text);
+
+        /** {@code null} shows a usage hint instead. */
+        void show(String full, String compact) {
+            getStyleClass().remove("idle");
+            if (full == null) {
+                getStyleClass().add("idle");
+            }
+            this.full = full == null ? READOUT_HINT : full;
+            this.compact = full == null ? READOUT_HINT : compact;
+            pickText();
+            requestLayout();
+        }
+
+        /** Asks for the room of the full text, whichever form is shown. */
+        @Override
+        protected double computePrefWidth(double height) {
+            return Ui.textWidth(full, getFont()) + snappedLeftInset() + snappedRightInset();
+        }
+
+        @Override
+        protected void layoutChildren() {
+            pickText();
+            super.layoutChildren();
+        }
+
+        private void pickText() {
+            setText(getWidth() >= computePrefWidth(-1) - 0.5 ? full : compact);
+        }
     }
 
     static void fixedY(LineChart<Number, Number> chart, double lower, double upper, double tick) {
