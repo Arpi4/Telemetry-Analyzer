@@ -31,7 +31,8 @@ The original endpoints (`/telemetry/import`, `/sessions`, `/compare`, `/compare/
    `core`, so the Docker **build context must be the repository root** (`dockerContext: .`,
    `dockerfilePath: ./backend/Dockerfile`). If the Render service was created in the dashboard
    rather than from the blueprint, set *Root Directory* to empty and *Dockerfile Path* to
-   `backend/Dockerfile` there.
+   `backend/Dockerfile` there. The image sizes the JVM for the free plan (512 MB, 0.1 CPU) through
+   `JAVA_TOOL_OPTIONS`; on a larger instance, override that environment variable in Render.
 2. In `web/app.js`, set `RENDER_API_BASE` to your Render URL, e.g. `https://telemetry-analyzer.onrender.com/api`.
    - The browser calls Render **directly** (backend has `@CrossOrigin(origins = "*")`), so you do not depend on Vercel `/api` rewrites.
 3. Optional: `vercel.json` and `web/vercel.json` contain `rewrites` that proxy `/api/*` to Render if you prefer same-origin `/api` URLs later.
