@@ -68,6 +68,34 @@ body {
 .hero-inner {
   position: relative;
   z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.25rem 2rem;
+}
+
+.hero-download {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  max-width: 30rem;
+}
+
+.btn-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  text-decoration: none;
+}
+
+.hero-download-note {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--muted);
 }
 
 .hero-badge {
@@ -325,7 +353,7 @@ body {
   min-height: 280px;
 }
 
-.chart-wrap canvas {
+.chart-wrap > canvas {
   width: 100% !important;
   height: auto !important;
 }
@@ -354,76 +382,6 @@ body {
   text-transform: uppercase;
 }
 
-.track-schematic-wrap {
-  margin-top: 1rem;
-  padding: 1rem;
-  border-radius: 8px;
-  background: #0a0e14;
-  border: 1px solid var(--border);
-}
-
-.track-schematic-wrap[hidden] {
-  display: none !important;
-}
-
-.track-schematic-svg {
-  display: block;
-  width: 100%;
-  max-width: 520px;
-  margin: 0 auto;
-  aspect-ratio: 1 / 1;
-}
-
-.track-schematic-path {
-  fill: none;
-  stroke: rgba(255, 61, 46, 0.55);
-  stroke-width: 1.4;
-  stroke-linejoin: round;
-}
-
-.track-segment-hit {
-  cursor: pointer;
-  fill: transparent;
-}
-
-.track-segment-marker {
-  stroke: #0a0e14;
-  stroke-width: 0.35;
-  pointer-events: none;
-}
-
-.track-segment-marker.neutral {
-  fill: #6b7280;
-}
-
-.track-segment-marker.slow {
-  fill: #f97316;
-}
-
-.track-segment-marker.fast {
-  fill: #22c55e;
-}
-
-.track-segment-marker.selected {
-  stroke: #fff;
-  stroke-width: 0.55;
-}
-
-.track-segment-label {
-  fill: #e8edf4;
-  font-size: 3.2px;
-  font-family: var(--font-ui);
-  pointer-events: none;
-}
-
-.track-schematic-actions {
-  margin-top: 0.75rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-}
-
 .compare-lap-row {
   margin-top: 0.75rem;
   display: flex;
@@ -434,4 +392,168 @@ body {
 
 .compare-lap-row .field {
   margin: 0;
+}
+
+/* Charts with a track map beside them; stacked with the map first on narrow screens. */
+.map-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.map-layout > .track-wrap {
+  order: -1;
+}
+
+@media (min-width: 1100px) {
+  .map-layout {
+    grid-template-columns: minmax(0, 1.65fr) minmax(340px, 1fr);
+  }
+
+  .map-layout > .track-wrap {
+    order: 0;
+    position: sticky;
+    top: 1rem;
+  }
+}
+
+.track-map {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.track-map canvas {
+  display: block;
+  width: 100%;
+}
+
+.track-map-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 1rem 1.25rem;
+  font-size: 0.9rem;
+  text-align: center;
+  color: var(--muted);
+}
+
+.track-map-status[hidden] {
+  display: none;
+}
+
+.track-map.is-loading .track-map-status::before {
+  content: "";
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent);
+  animation: track-map-spin 0.8s linear infinite;
+}
+
+@keyframes track-map-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.track-map-caption {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 5px;
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.sector-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.sector-strip[hidden] {
+  display: none;
+}
+
+.sector-strip-title {
+  margin-right: 0.2rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.sector-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: #cbd5e1;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.sector-chip b {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.sector-chip.gain {
+  border-left-color: #22c55e;
+  color: #86efac;
+}
+
+.sector-chip.loss {
+  border-left-color: #ef4444;
+  color: #fca5a5;
+}
+
+/* Phones: slimmer gutters so charts and the track map get most of the width. */
+@media (max-width: 600px) {
+  .page {
+    padding: 0 0.75rem 2rem;
+  }
+
+  .hero {
+    margin: 0 -0.75rem 1.25rem;
+    padding: 1.5rem 1rem 1.75rem;
+  }
+
+  .panel {
+    padding: 1rem 0.9rem;
+  }
+
+  .chart-wrap {
+    padding: 0.6rem 0.5rem;
+  }
+
+  .track-map-caption {
+    position: static;
+    padding: 0 10px 8px;
+    white-space: normal;
+  }
 }

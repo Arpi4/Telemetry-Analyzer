@@ -6,26 +6,36 @@ const apiBase =
     : RENDER_API_BASE;
 
 const TRACK_CHART_MAX_POINTS = 12_000;
-const DEFAULT_SEGMENT_COUNT = 10;
+const SECTOR_COUNT = 10;
+/** Half window of the local time-loss rate that colours the comparison map (as on the desktop). */
+const RATE_HALF_WINDOW_M = 25;
 
 let speedChart;
 let throttleChart;
 let brakeChart;
 let gearChart;
-let trackMapChart;
 let compareSpeedChart;
 
 /** @type {{ points: any[], labels: any[], speed: number[], throttle: number[], brake: number[], gear: number[], lapBoundaries?: any[] } | null} */
 let fullLapSnapshot = null;
+/** @type {string | null} */
+let currentSessionId = null;
 /** @type {any[]} */
 let currentSessionLaps = [];
 let currentLapIndex = 0;
-/** @type {any[] | null} */
-let segmentMetaList = null;
-let selectedSegmentIndex = null;
-/** "neutral" = equal slices only; "compare" = coloured vs reference lap */
-let segmentDisplayMode = "neutral";
 const sessionDetailsCache = new Map();
+// Outlines, events and aligned comparisons of an imported session never change: fetch each once.
+const lapTrackCache = new Map();
+const lapEventsCache = new Map();
+const alignedCompareCache = new Map();
+
+const lapTrackMap = new TrackMap(document.getElementById("lapTrackMap"), "Load a session to draw the track map.");
+const compareTrackMap = new TrackMap(document.getElementById("compareTrackMap"), "Compare two laps to colour the track by time delta.");
+/** Incremented per map update so a slow response cannot overwrite a newer selection. */
+let lapMapRequest = 0;
+let compareMapRequest = 0;
+/** Reference samples per point of the downsampled compare chart (chart index to outline index). */
+let compareChartStep = 1;
 
 async function parseJsonResponse(res) {
   const text = await res.text();
@@ -95,301 +105,209 @@ const lapBoundariesPlugin = {
 
 Chart.register(lapBoundariesPlugin);
 
-function downsamplePoints(arr, maxN) {
-  if (arr.length <= maxN) {
-    return arr;
-  }
-  const step = Math.ceil(arr.length / maxN);
-  const out = [];
-  for (let i = 0; i < arr.length; i += step) {
-    out.push(arr[i]);
-  }
-  return out;
-}
-
-function isPlausibleGps(lat, lon) {
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    return false;
-  }
-  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
-    return false;
-  }
-  if (Math.abs(lat) + Math.abs(lon) < 0.0005) {
-    return false;
-  }
-  return true;
-}
-
-function destroyTrackMapChart() {
-  if (trackMapChart) {
-    trackMapChart.destroy();
-    trackMapChart = null;
-  }
-}
-
-function drawTrackScatter(points, xTitle, yTitle, datasetLabel) {
-  destroyTrackMapChart();
-  const dataset = [{
-    label: datasetLabel,
-    data: points,
-    showLine: true,
-    borderColor: "#ff3d2e",
-    backgroundColor: "rgba(255,61,46,0.45)",
-    pointRadius: 1,
-    borderWidth: 2
-  }];
-
-  trackMapChart = new Chart(document.getElementById("trackMapChart"), {
-    type: "scatter",
-    data: { datasets: dataset },
-    options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: {
-        legend: { labels: { color: "#e8edf4" } }
-      },
-      scales: {
-        x: {
-          type: "linear",
-          title: { display: true, text: xTitle, color: "#8b9cb3" },
-          ticks: { color: "#8b9cb3" },
-          grid: { color: "rgba(255,255,255,0.06)" }
-        },
-        y: {
-          type: "linear",
-          title: { display: true, text: yTitle, color: "#8b9cb3" },
-          ticks: { color: "#8b9cb3" },
-          grid: { color: "rgba(255,255,255,0.06)" }
-        }
+/** Fetches JSON once per key; a failed request is dropped from the cache so it can be retried. */
+function fetchJsonCached(cache, key, url) {
+  if (!cache.has(key)) {
+    const request = fetch(url).then(async (res) => {
+      const data = await parseJsonResponse(res);
+      if (!res.ok) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
       }
-    }
-  });
-  return trackMapChart;
-}
-
-function closedPolylineLength(points) {
-  const n = points.length;
-  if (n < 2) {
-    return 0;
-  }
-  let L = 0;
-  for (let i = 0; i < n; i++) {
-    const j = (i + 1) % n;
-    L += Math.hypot(points[j][0] - points[i][0], points[j][1] - points[i][1]);
-  }
-  return L;
-}
-
-function pointOnClosedPolyline(points, t) {
-  const n = points.length;
-  if (n < 2) {
-    return [50, 50];
-  }
-  let tt = ((t % 1) + 1) % 1;
-  const total = closedPolylineLength(points);
-  let dist = tt * total;
-  for (let i = 0; i < n; i++) {
-    const j = (i + 1) % n;
-    const len = Math.hypot(points[j][0] - points[i][0], points[j][1] - points[i][1]);
-    if (dist <= len + 1e-9) {
-      const f = len > 0 ? dist / len : 0;
-      return [
-        points[i][0] + f * (points[j][0] - points[i][0]),
-        points[i][1] + f * (points[j][1] - points[i][1])
-      ];
-    }
-    dist -= len;
-  }
-  return points[0];
-}
-
-function pathDFromClosedPolyline(points) {
-  if (!points.length) {
-    return "";
-  }
-  const [x0, y0] = points[0];
-  let d = `M ${x0} ${y0}`;
-  for (let i = 1; i < points.length; i++) {
-    d += ` L ${points[i][0]} ${points[i][1]}`;
-  }
-  d += " Z";
-  return d;
-}
-
-function buildNeutralSegments(count) {
-  const out = [];
-  for (let k = 0; k < count; k++) {
-    const p0 = k / count;
-    const p1 = (k + 1) / count;
-    out.push({
-      index: k + 1,
-      progressStart: p0,
-      progressEnd: p1,
-      distanceStartM: null,
-      distanceEndM: null,
-      referenceAvgSpeedKmh: 0,
-      compareAvgSpeedKmh: 0,
-      deltaSeconds: 0,
-      distanceBased: false
+      return data;
     });
+    request.catch(() => cache.delete(key));
+    cache.set(key, request);
+  }
+  return cache.get(key);
+}
+
+function lapResourceUrl(sessionId, lapId, resource) {
+  return `${apiBase}/sessions/${encodeURIComponent(sessionId)}/laps/${encodeURIComponent(lapId)}/${resource}`;
+}
+
+function fetchLapTrack(sessionId, lapId) {
+  return fetchJsonCached(lapTrackCache, `${sessionId}/${lapId}`, lapResourceUrl(sessionId, lapId, "track"));
+}
+
+function fetchLapEvents(sessionId, lapId) {
+  return fetchJsonCached(lapEventsCache, `${sessionId}/${lapId}`, lapResourceUrl(sessionId, lapId, "events"));
+}
+
+function fetchAlignedComparison(refSessionId, refLapId, cmpSessionId, cmpLapId) {
+  const query = new URLSearchParams({
+    referenceSessionId: refSessionId,
+    referenceLapId: refLapId,
+    compareSessionId: cmpSessionId,
+    compareLapId: cmpLapId,
+    sectorCount: String(SECTOR_COUNT)
+  });
+  return fetchJsonCached(alignedCompareCache, query.toString(), `${apiBase}/compare/aligned?${query}`);
+}
+
+/** Speed-coloured map of the selected lap with its braking points. */
+async function updateLapTrackMap() {
+  const request = ++lapMapRequest;
+  const lap = currentSessionLaps[currentLapIndex];
+  if (!currentSessionId || !lap) {
+    lapTrackMap.showMessage(currentSessionId ? "This session has no lap data." : "Load a session to draw the track map.");
+    return;
+  }
+  lapTrackMap.showMessage("Loading track map…", true);
+  const [track, events] = await Promise.allSettled([
+    fetchLapTrack(currentSessionId, lap.lapId),
+    fetchLapEvents(currentSessionId, lap.lapId)
+  ]);
+  if (request !== lapMapRequest) {
+    return;
+  }
+  if (track.status === "rejected") {
+    lapTrackMap.showMessage(`Could not load the track map: ${track.reason.message}`);
+    return;
+  }
+  lapTrackMap.setTrack(track.value);
+  // The outline has one sample per lap sample, so speed colours it one to one.
+  lapTrackMap.setValues(lap.points.map((p) => Number(p.speed) || 0), "speed", "slow", "fast");
+  const zones = events.status === "fulfilled" && Array.isArray(events.value?.brakingZones) ? events.value.brakingZones : [];
+  lapTrackMap.setMarkers(zones.map((z) => ({ distance: z.startDistance, label: `B${z.index}`, color: TrackMap.BRAKE_COLOR })));
+}
+
+/** d(Δt)/ds over a ±25 m window, in seconds per 100 m (positive = compare loses time). */
+function lossRate(distance, deltaT) {
+  const n = distance.length;
+  const rate = new Array(n).fill(0);
+  let lo = 0;
+  let hi = 0;
+  for (let k = 0; k < n; k++) {
+    while (distance[lo] < distance[k] - RATE_HALF_WINDOW_M) {
+      lo++;
+    }
+    while (hi < n - 1 && distance[hi + 1] <= distance[k] + RATE_HALF_WINDOW_M) {
+      hi++;
+    }
+    const ds = distance[hi] - distance[lo];
+    rate[k] = ds > 0 ? 100 * (deltaT[hi] - deltaT[lo]) / ds : 0;
+  }
+  return rate;
+}
+
+/** Piecewise linear y(x) at every grid position; x and grid ascending (as core Interpolation.resample). */
+function resample(x, y, grid) {
+  const n = x.length;
+  const out = new Array(grid.length).fill(n ? y[0] : 0);
+  if (n < 2) {
+    return out;
+  }
+  let j = 0;
+  for (let k = 0; k < grid.length; k++) {
+    const s = grid[k];
+    while (j < n - 2 && x[j + 1] < s) {
+      j++;
+    }
+    if (s <= x[j]) {
+      out[k] = y[j];
+    } else if (s >= x[j + 1]) {
+      out[k] = y[j + 1];
+    } else {
+      out[k] = y[j] + (s - x[j]) / (x[j + 1] - x[j]) * (y[j + 1] - y[j]);
+    }
   }
   return out;
 }
 
-function markerClassForDelta(deltaSeconds, hasCompare) {
-  if (!hasCompare) {
-    return "neutral";
-  }
-  if (deltaSeconds > 0.015) {
-    return "slow";
-  }
-  if (deltaSeconds < -0.015) {
-    return "fast";
-  }
-  return "neutral";
+/** "+1.234" / "-1.234"; values that round to zero print as "0.000". */
+function formatSigned(value, digits) {
+  const rounded = Number(value.toFixed(digits));
+  return `${rounded > 0 ? "+" : ""}${rounded.toFixed(digits)}`;
 }
 
-function formatDeltaLabel(deltaSeconds, hasCompare) {
-  if (!hasCompare) {
-    return String("");
-  }
-  const s = deltaSeconds >= 0 ? `+${deltaSeconds.toFixed(3)}` : deltaSeconds.toFixed(3);
-  return s;
-}
-
-function renderSchematicSegments(segments, hasCompare) {
-  const outline = window.TA_MONZA_OUTLINE || [[50, 50]];
-  const wrap = document.getElementById("trackSchematicWrap");
-  const pathEl = document.getElementById("trackSchematicPath");
-  const g = document.getElementById("trackSegmentMarkers");
-  const legend = document.getElementById("trackSegmentLegend");
-  if (!wrap || !pathEl || !g) {
+function renderSectorStrip(sectors, lapDelta) {
+  const strip = document.getElementById("compareSectors");
+  if (!strip) {
     return;
   }
+  strip.innerHTML = "";
+  strip.hidden = !Array.isArray(sectors) || sectors.length === 0;
+  if (strip.hidden) {
+    return;
+  }
+  const chip = (name, delta, title) => {
+    const el = document.createElement("span");
+    const text = formatSigned(delta, 3);
+    el.className = `sector-chip ${text.startsWith("+") ? "loss" : text.startsWith("-") ? "gain" : ""}`;
+    el.title = title;
+    const label = document.createElement("b");
+    label.textContent = name;
+    el.append(label, text);
+    return el;
+  };
+  const heading = document.createElement("span");
+  heading.className = "sector-strip-title";
+  heading.textContent = "Δt (s)";
+  strip.append(heading, chip("Lap", lapDelta, "Compare minus reference lap time on the aligned distance axis"));
+  for (const s of sectors) {
+    strip.append(chip(`S${s.index}`, s.deltaSeconds,
+      `${s.distanceStartM.toFixed(0)}–${s.distanceEndM.toFixed(0)} m · reference ${s.referenceAvgSpeedKmh.toFixed(1)} km/h · compare ${s.compareAvgSpeedKmh.toFixed(1)} km/h`));
+  }
+}
 
-  pathEl.setAttribute("d", pathDFromClosedPolyline(outline));
-  g.innerHTML = "";
+/** Reference lap outline coloured by where the compare lap gains or loses time, with sector starts. */
+async function updateCompareTrackMap(refSessionId, refLapId, cmpSessionId, cmpLapId) {
+  const request = ++compareMapRequest;
+  compareTrackMap.showMessage("Loading track map…", true);
+  renderSectorStrip(null);
+  const [track, aligned] = await Promise.allSettled([
+    fetchLapTrack(refSessionId, refLapId),
+    fetchAlignedComparison(refSessionId, refLapId, cmpSessionId, cmpLapId)
+  ]);
+  if (request !== compareMapRequest) {
+    return;
+  }
+  if (aligned.status === "rejected") {
+    compareTrackMap.showMessage(`Cannot align the laps: ${aligned.reason.message}`);
+    return;
+  }
+  const { comparison, sectors, finalDelta } = aligned.value;
+  renderSectorStrip(sectors, finalDelta);
+  if (track.status === "rejected") {
+    compareTrackMap.showMessage(`Could not load the track map: ${track.reason.message}`);
+    return;
+  }
+  const outline = track.value;
+  compareTrackMap.setTrack(outline);
+  if (outline?.source !== "NONE" && comparison.distance.length > 1) {
+    const rate = resample(comparison.distance, lossRate(comparison.distance, comparison.deltaTime), outline.distance);
+    compareTrackMap.setValues(rate, "delta", "compare gains", "compare loses");
+  }
+  compareTrackMap.setMarkers(sectors
+    .filter((s) => s.index !== 1) // starts at S/F, which is already marked
+    .map((s) => ({
+      distance: s.distanceStartM,
+      label: `S${s.index}`,
+      color: s.deltaSeconds > 0 ? TrackMap.LOSS_COLOR : TrackMap.GAIN_COLOR
+    })));
+}
 
-  segments.forEach((seg, idx) => {
-    const tMid = (seg.progressStart + seg.progressEnd) / 2;
-    const [cx, cy] = pointOnClosedPolyline(outline, tMid);
-    const mclass = markerClassForDelta(seg.deltaSeconds, hasCompare);
-    const label = formatDeltaLabel(seg.deltaSeconds, hasCompare);
-
-    const hit = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    hit.setAttribute("class", "track-segment-hit");
-    hit.setAttribute("cx", String(cx));
-    hit.setAttribute("cy", String(cy));
-    hit.setAttribute("r", "6");
-    hit.dataset.segmentIndex = String(idx);
-
-    const vis = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    vis.setAttribute("class", `track-segment-marker ${mclass}${selectedSegmentIndex === idx ? " selected" : ""}`);
-    vis.setAttribute("cx", String(cx));
-    vis.setAttribute("cy", String(cy));
-    vis.setAttribute("r", "3.2");
-
-    const num = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    num.setAttribute("class", "track-segment-label");
-    num.setAttribute("x", String(cx + 5));
-    num.setAttribute("y", String(cy - 4));
-    num.textContent = String(seg.index);
-
-    g.appendChild(hit);
-    g.appendChild(vis);
-    g.appendChild(num);
-
-    if (label) {
-      const tx = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      tx.setAttribute("class", "track-segment-label");
-      tx.setAttribute("x", String(cx + 5));
-      tx.setAttribute("y", String(cy + 3.5));
-      tx.setAttribute("fill", mclass === "slow" ? "#fdba74" : mclass === "fast" ? "#86efac" : "#9ca3af");
-      tx.textContent = label;
-      g.appendChild(tx);
+/** Follows the pointer over a chart with the map cursor; toSample maps a chart index to an outline sample. */
+function linkChartToMap(canvasId, map, toSample) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) {
+    return;
+  }
+  const follow = (event) => {
+    const chart = Chart.getChart(canvas);
+    if (!chart) {
+      return;
     }
-
-    hit.addEventListener("click", () => {
-      selectedSegmentIndex = idx;
-      applySegmentFocus(segments[idx]);
-      renderSchematicSegments(segments, hasCompare);
-    });
+    const hit = chart.getElementsAtEventForMode(event, "index", { intersect: false }, false);
+    map.setCursorIndex(hit.length ? toSample(hit[0].index) : -1);
+  };
+  canvas.addEventListener("pointermove", follow);
+  canvas.addEventListener("pointerdown", follow);
+  canvas.addEventListener("pointerleave", (event) => {
+    if (event.pointerType !== "touch") {
+      map.setCursorIndex(-1);
+    }
   });
-
-  if (legend) {
-    legend.textContent = hasCompare
-      ? "Schematic track: orange ≈ slower than reference in that segment, green ≈ faster, grey ≈ matched. Click a marker to show only that slice in the charts above."
-      : "Schematic track: equal lap slices (by distance if available, else by samples). Click a marker to zoom charts to that part of the lap. Load segment deltas after choosing two sessions to colour markers vs reference.";
-  }
-}
-
-function hideSchematic() {
-  const wrap = document.getElementById("trackSchematicWrap");
-  if (wrap) {
-    wrap.hidden = true;
-  }
-  segmentMetaList = null;
-  selectedSegmentIndex = null;
-  segmentDisplayMode = "neutral";
-}
-
-function showSchematicWithSegments(segments, hasCompare) {
-  const wrap = document.getElementById("trackSchematicWrap");
-  if (wrap) {
-    wrap.hidden = false;
-  }
-  segmentMetaList = segments;
-  segmentDisplayMode = hasCompare ? "compare" : "neutral";
-  renderSchematicSegments(segments, hasCompare);
-}
-
-function slicePointsForSegment(points, seg) {
-  const hasDist = points.some((p) => Number.isFinite(p.distanceMeters));
-  if (hasDist && seg.distanceStartM != null && seg.distanceEndM != null) {
-    const d0 = seg.distanceStartM;
-    const d1 = seg.distanceEndM;
-    const slice = points.filter((p) => {
-      const d = p.distanceMeters;
-      return Number.isFinite(d) && d >= d0 && d <= d1 + 1e-6;
-    });
-    if (slice.length > 1) {
-      return slice;
-    }
-  }
-  const n = points.length;
-  const i0 = Math.min(n - 1, Math.floor(n * seg.progressStart));
-  let i1 = Math.max(i0 + 1, Math.ceil(n * seg.progressEnd));
-  if (i1 > n) {
-    i1 = n;
-  }
-  return points.slice(i0, i1);
-}
-
-function applySegmentFocus(seg) {
-  if (!fullLapSnapshot || !seg) {
-    return;
-  }
-  const slice = slicePointsForSegment(fullLapSnapshot.points, seg);
-  if (slice.length < 2) {
-    return;
-  }
-  const labels = slice.map((p) => p.timestamp);
-  const speed = slice.map((p) => p.speed);
-  const throttle = slice.map((p) => p.throttle);
-  const brake = slice.map((p) => p.brake);
-  const gear = slice.map((p) => p.gear);
-  speedChart = drawOrUpdateChart(speedChart, "speedChart", labels, [
-    { label: `Speed (km/h) · segment ${seg.index}`, data: speed, borderColor: "#ff3d2e", backgroundColor: "rgba(255,61,46,0.12)", fill: false, tension: 0.15, pointRadius: 0, borderWidth: 2 }
-  ]);
-  throttleChart = drawOrUpdateChart(throttleChart, "throttleChart", labels, [
-    { label: "Throttle", data: throttle, borderColor: "#22c55e", tension: 0.15, pointRadius: 0, borderWidth: 2 }
-  ]);
-  brakeChart = drawOrUpdateChart(brakeChart, "brakeChart", labels, [
-    { label: "Brake", data: brake, borderColor: "#ef4444", tension: 0.15, pointRadius: 0, borderWidth: 2 }
-  ]);
-  gearChart = drawOrUpdateChart(gearChart, "gearChart", labels, [
-    { label: "Gear", data: gear, borderColor: "#c084fc", tension: 0.1, pointRadius: 0, borderWidth: 2 }
-  ]);
 }
 
 function redrawFullLapCharts() {
@@ -409,11 +327,6 @@ function redrawFullLapCharts() {
   gearChart = drawOrUpdateChart(gearChart, "gearChart", labels, [
     { label: "Gear", data: gear, borderColor: "#c084fc", tension: 0.1, pointRadius: 0, borderWidth: 2 }
   ]);
-  selectedSegmentIndex = null;
-  if (segmentMetaList) {
-    const hasCompare = segmentDisplayMode === "compare";
-    renderSchematicSegments(segmentMetaList, hasCompare);
-  }
 }
 
 async function uploadTelemetry() {
@@ -601,6 +514,7 @@ function renderCurrentLap() {
   fullLapSnapshot = buildLapSnapshot(lap);
   redrawFullLapCharts();
   updateLapToolbar();
+  updateLapTrackMap();
 }
 
 async function loadSelectedSession() {
@@ -609,11 +523,13 @@ async function loadSelectedSession() {
     return;
   }
 
-  const res = await fetch(`${apiBase}/sessions/${sessionId}`);
-  const session = await parseJsonResponse(res);
-  if (!res.ok) {
+  lapTrackMap.showMessage("Loading session…", true);
+  const session = await getSessionDetails(sessionId);
+  if (!session) {
+    lapTrackMap.showMessage("Could not load the session.");
     return;
   }
+  currentSessionId = sessionId;
   currentSessionLaps = Array.isArray(session?.laps)
     ? session.laps.filter((lap) => Array.isArray(lap?.points) && lap.points.length > 0)
     : [];
@@ -621,6 +537,7 @@ async function loadSelectedSession() {
   if (!currentSessionLaps.length) {
     fullLapSnapshot = null;
     updateLapToolbar();
+    updateLapTrackMap();
     return;
   }
   renderCurrentLap();
@@ -684,6 +601,7 @@ function downsampleSeries(values, maxLen) {
 function renderCompareSpeedChart(refLap, cmpLap) {
   const refSpeed = downsampleSeries(refLap.points.map((p) => Number(p.speed) || 0), TRACK_CHART_MAX_POINTS);
   const cmpSpeed = downsampleSeries(cmpLap.points.map((p) => Number(p.speed) || 0), TRACK_CHART_MAX_POINTS);
+  compareChartStep = Math.max(1, Math.ceil(refLap.points.length / TRACK_CHART_MAX_POINTS));
   const n = Math.min(refSpeed.length, cmpSpeed.length);
   const labels = Array.from({ length: n }, (_, i) => String(i));
   const refSeries = refSpeed.slice(0, n);
@@ -732,6 +650,7 @@ async function compareSessions() {
     out.textContent = "Selected lap not found in one or both sessions.";
     return;
   }
+  updateCompareTrackMap(ref, refLapId, cmp, cmpLapId);
 
   const res = await fetch(
     `${apiBase}/compare?referenceSessionId=${encodeURIComponent(ref)}&compareSessionId=${encodeURIComponent(cmp)}&referenceLapId=${encodeURIComponent(refLapId)}&compareLapId=${encodeURIComponent(cmpLapId)}`
@@ -766,31 +685,6 @@ async function compareSessions() {
     `Compared samples: ${Number.isFinite(comparedSamples) ? comparedSamples : "n/a"}\n` +
     `${direction}\n` +
     `${referenceTimeSummary}`;
-}
-
-async function loadSegmentDeltasOnMap() {
-  const ref = document.getElementById("refSession").value;
-  const cmp = document.getElementById("cmpSession").value;
-  const lapId = document.getElementById("refLapSelect")?.value || "lap-1";
-  const out = document.getElementById("compareResult");
-
-  if (!ref || !cmp) {
-    out.textContent = "Select reference and compare sessions first.";
-    return;
-  }
-
-  const url = `${apiBase}/compare/segments?referenceSessionId=${encodeURIComponent(ref)}&compareSessionId=${encodeURIComponent(cmp)}&lapId=${encodeURIComponent(lapId)}&segmentCount=${DEFAULT_SEGMENT_COUNT}`;
-  const res = await fetch(url);
-  const data = await parseJsonResponse(res);
-  if (!res.ok) {
-    out.textContent = JSON.stringify(data ?? { error: res.status }, null, 2);
-    return;
-  }
-  out.textContent = JSON.stringify(data, null, 2);
-  const segs = data.segments;
-  if (Array.isArray(segs) && segs.length) {
-    showSchematicWithSegments(segs, true);
-  }
 }
 
 document.getElementById("uploadBtn").addEventListener("click", uploadTelemetry);
@@ -836,16 +730,10 @@ if (nextLapBtn) {
     renderCurrentLap();
   });
 }
-const loadSegmentDeltasBtn = document.getElementById("loadSegmentDeltas");
-if (loadSegmentDeltasBtn) {
-  loadSegmentDeltasBtn.addEventListener("click", loadSegmentDeltasOnMap);
+for (const id of ["speedChart", "throttleChart", "brakeChart", "gearChart"]) {
+  linkChartToMap(id, lapTrackMap, (i) => i);
 }
-const clearSegmentFocusBtn = document.getElementById("clearSegmentFocus");
-if (clearSegmentFocusBtn) {
-  clearSegmentFocusBtn.addEventListener("click", () => {
-    redrawFullLapCharts();
-  });
-}
+linkChartToMap("compareSpeedChart", compareTrackMap, (i) => i * compareChartStep);
 
 loadSessions();
 updateLapToolbar();

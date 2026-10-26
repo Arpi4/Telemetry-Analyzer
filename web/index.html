@@ -14,9 +14,18 @@
     <header class="hero">
       <div class="hero-stripes" aria-hidden="true"></div>
       <div class="hero-inner">
-        <p class="hero-badge">Live telemetry</p>
-        <h1 class="hero-title">Telemetry Analyzer</h1>
-        <p class="hero-tagline">CSV · MoTeC · OpenF1 · lap compare</p>
+        <div class="hero-text">
+          <p class="hero-badge">Live telemetry</p>
+          <h1 class="hero-title">Telemetry Analyzer</h1>
+          <p class="hero-tagline">CSV · MoTeC · OpenF1 · lap compare</p>
+        </div>
+        <div class="hero-download">
+          <a class="btn btn-primary btn-download" href="https://github.com/Arpi4/Telemetry-Analyzer/releases/latest" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M4 19h16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Download desktop app
+          </a>
+          <p class="hero-download-note">Runs offline on Windows, macOS and Linux, no Java installation needed.</p>
+        </div>
       </div>
     </header>
 
@@ -47,30 +56,36 @@
 
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Lap charts</h2>
-        <p class="panel-help">Each channel is shown on a separate chart. To keep the view clean, only one lap is displayed at a time.</p>
+        <p class="panel-help">Each channel is shown on a separate chart, next to a map of the driven line. To keep the view clean, only one lap is displayed at a time.</p>
         <div class="lap-toolbar">
           <button type="button" class="btn btn-ghost" id="prevLapBtn">Previous lap</button>
           <select id="lapSelect" class="select"></select>
           <button type="button" class="btn btn-ghost" id="nextLapBtn">Next lap</button>
           <span id="lapTimeInfo" class="lap-time-info">Lap time: -</span>
         </div>
-        <div class="chart-grid chart-grid-single">
-          <div class="chart-wrap">
-            <p class="chart-help"><strong>Speed:</strong> shows how fast the car is moving. High peaks are straights, and deep drops are braking zones before corners.</p>
-            <canvas id="speedChart"></canvas>
+        <div class="map-layout">
+          <div class="chart-grid chart-grid-single">
+            <div class="chart-wrap">
+              <p class="chart-help"><strong>Speed:</strong> shows how fast the car is moving. High peaks are straights, and deep drops are braking zones before corners.</p>
+              <canvas id="speedChart"></canvas>
+            </div>
+            <div class="chart-wrap">
+              <p class="chart-help"><strong>Throttle:</strong> shows accelerator pedal usage in percent. Near 100% means full power, near 0% means you are lifting off.</p>
+              <canvas id="throttleChart"></canvas>
+            </div>
+            <div class="chart-wrap">
+              <p class="chart-help"><strong>Brake:</strong> shows brake pedal pressure/usage. Spikes mean braking events and help identify where you brake too early or too late.</p>
+              <canvas id="brakeChart"></canvas>
+            </div>
+            <div class="chart-wrap">
+              <p class="chart-help"><strong>Gear:</strong> shows the selected gear over the lap. It helps you see shift timing and whether gear choice is consistent corner by corner.</p>
+              <canvas id="gearChart"></canvas>
+            </div>
           </div>
-          <div class="chart-wrap">
-            <p class="chart-help"><strong>Throttle:</strong> shows accelerator pedal usage in percent. Near 100% means full power, near 0% means you are lifting off.</p>
-            <canvas id="throttleChart"></canvas>
-          </div>
-          <div class="chart-wrap">
-            <p class="chart-help"><strong>Brake:</strong> shows brake pedal pressure/usage. Spikes mean braking events and help identify where you brake too early or too late.</p>
-            <canvas id="brakeChart"></canvas>
-          </div>
-          <div class="chart-wrap">
-            <p class="chart-help"><strong>Gear:</strong> shows the selected gear over the lap. It helps you see shift timing and whether gear choice is consistent corner by corner.</p>
-            <canvas id="gearChart"></canvas>
-          </div>
+          <aside class="chart-wrap track-wrap">
+            <p class="chart-help"><strong>Track map:</strong> the driven line coloured by speed, from blue (slow) to red (fast). B1, B2, … mark where each braking zone starts, the white dot is start/finish. Hover a chart to follow the car.</p>
+            <div id="lapTrackMap"></div>
+          </aside>
         </div>
       </section>
 
@@ -100,9 +115,16 @@
         <div class="row" style="margin-top: 0.75rem">
           <button type="button" class="btn btn-primary" id="runCompare">Compare laps</button>
         </div>
-        <div class="chart-wrap chart-wrap-wide" style="margin-top: 0.9rem">
-          <p class="chart-help"><strong>Speed overlay:</strong> same chart, two laps. Red = reference, cyan = compare.</p>
-          <canvas id="compareSpeedChart"></canvas>
+        <div class="map-layout" style="margin-top: 0.9rem">
+          <div class="chart-wrap chart-wrap-wide">
+            <p class="chart-help"><strong>Speed overlay:</strong> same chart, two laps. Red = reference, cyan = compare.</p>
+            <canvas id="compareSpeedChart"></canvas>
+          </div>
+          <aside class="chart-wrap track-wrap">
+            <p class="chart-help"><strong>Time delta map:</strong> the reference lap's line, green where the compare lap gains time and red where it loses. S2, S3, … mark the sector starts, coloured by that sector's delta.</p>
+            <div id="compareTrackMap"></div>
+            <div id="compareSectors" class="sector-strip" hidden></div>
+          </aside>
         </div>
         <pre id="compareResult" class="code-out"></pre>
       </section>
@@ -114,6 +136,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="track-map.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
