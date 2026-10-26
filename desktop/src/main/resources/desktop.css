@@ -23,7 +23,7 @@
   -text: #e8edf4;
   -text-soft: #c5d0dc;
   -muted: #8b9cb3;
-  -dim: #5e6d82;
+  -dim: #7c8ca2; /* >= 4.5:1 on the panels and the selection, for the small helper text */
   -accent: #ff3d2e;
   -accent-dim: #c42a1f;
   -accent-glow: rgba(255, 61, 46, 0.35);
@@ -454,9 +454,10 @@
   -fx-font-size: 0.92em;
 }
 
+/* same face as the lap times in the lap list */
 .summary-value {
   -fx-text-fill: -text;
-  -fx-font-family: "Segoe UI Semibold";
+  -fx-font-family: Consolas;
 }
 
 .placeholder-text {
@@ -471,6 +472,8 @@
   -fx-background-insets: 0;
   -fx-padding: 0;
   -fx-table-cell-border-color: transparent;
+  /* fixed rows: the comparison sizes its sector card to whole rows */
+  -fx-fixed-cell-size: 2.3em;
 }
 
 .table-view:focus-visible {
@@ -491,7 +494,7 @@
 
 .table-view .column-header > .label {
   -fx-alignment: center-left;
-  -fx-padding: 0 8 0 8;
+  -fx-padding: 0 6 0 6;
 }
 
 .table-view .column-header.num > .label {
@@ -538,8 +541,9 @@
 
 .table-cell {
   -fx-text-fill: -text-soft;
-  -fx-padding: 0.35em 8 0.35em 8;
+  -fx-padding: 0 6 0 6;
   -fx-border-color: transparent;
+  -fx-alignment: center-left;
 }
 
 .table-cell.num {
@@ -601,6 +605,11 @@
   -fx-border-color: transparent;
 }
 
+.tab-pane.card-tabs:focus-visible > .tab-header-area > .headers-region > .tab:selected {
+  -fx-background-color: rgba(255, 255, 255, 0.08);
+  -fx-background-radius: 4 4 0 0;
+}
+
 .tab-pane.card-tabs > .tab-content-area {
   -fx-background-color: transparent;
   -fx-padding: 6 10 10 10;
@@ -626,13 +635,10 @@
   -fx-padding: 10;
 }
 
+/* the skin sizes a divider from its left + right padding in both orientations */
 .split-pane > .split-pane-divider {
   -fx-background-color: transparent;
   -fx-padding: 0 5 0 5;
-}
-
-.split-pane:vertical > .split-pane-divider {
-  -fx-padding: 5 0 5 0;
 }
 
 .split-pane > .split-pane-divider:hover {
@@ -835,6 +841,10 @@
   -fx-text-fill: #a8b8cc;
   -fx-highlight-fill: rgba(255, 61, 46, 0.35);
   -fx-highlight-text-fill: white;
+}
+
+.text-area:focus-visible {
+  -fx-background-color: rgba(255, 61, 46, 0.5), #05070a;
 }
 
 .text-area > .scroll-pane > .viewport > .content {

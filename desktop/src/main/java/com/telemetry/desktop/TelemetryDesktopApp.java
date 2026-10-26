@@ -66,9 +66,13 @@ public class TelemetryDesktopApp extends Application {
     /** Window size on large screens; smaller screens get a maximised window instead. */
     private static final double PREF_WIDTH = 1600;
     private static final double PREF_HEIGHT = 980;
-    /** Below this the three-column views no longer fit. */
-    private static final double MIN_WIDTH = 1024;
-    private static final double MIN_HEIGHT = 640;
+    /**
+     * Below this the three-column views no longer fit; still smaller than the work area of a
+     * 1280x720 laptop screen (1280x680 without the taskbar).
+     */
+    private static final double MIN_WIDTH = 1180;
+    private static final double MIN_HEIGHT = 680;
+    private static final KeyCode[] VIEW_KEYS = {KeyCode.DIGIT1, KeyCode.DIGIT2, KeyCode.DIGIT3};
 
     private final SessionModel model = new SessionModel();
     private final LapAnalysisView lapView = new LapAnalysisView(model);
@@ -108,9 +112,11 @@ public class TelemetryDesktopApp extends Application {
         views.addAll(List.of(lapView.node(), compareView.node(), reportView));
         StackPane content = new StackPane(views.toArray(Node[]::new));
 
+        // display text follows the platform: Ctrl+O on Windows and Linux, ⌘O on macOS
+        KeyCombination openKey = new KeyCodeCombination(KeyCode.O, KeyCombination.SHORTCUT_DOWN);
         Button open = new Button("Open files…");
         open.getStyleClass().add("btn-primary");
-        open.setTooltip(new Tooltip("Open CSV / LD / LDX telemetry files (Ctrl+O)"));
+        open.setTooltip(new Tooltip("Open CSV / LD / LDX telemetry files (" + openKey.getDisplayText() + ")"));
         open.setOnAction(e -> chooseFiles());
         Button export = new Button("Export PNG");
         export.setTooltip(new Tooltip("Save the current view as a PNG image"));
@@ -142,7 +148,7 @@ public class TelemetryDesktopApp extends Application {
         progress.managedProperty().bind(progress.visibleProperty());
         progress.setPrefWidth(160);
         status.setMinWidth(0);
-        Label hint = new Label("Drop telemetry files anywhere  ·  Ctrl+O to open");
+        Label hint = new Label("Drop telemetry files anywhere  ·  " + openKey.getDisplayText() + " to open");
         hint.setMinWidth(Region.USE_PREF_SIZE);
         HBox statusBar = new HBox(10, progress, status, Ui.spacer(), hint);
         statusBar.setAlignment(Pos.CENTER_LEFT);
@@ -157,7 +163,16 @@ public class TelemetryDesktopApp extends Application {
             scene.getStylesheets().add(css.toExternalForm());
         }
         scene.setFill(Color.web("#07090d"));
-        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.O, KeyCombination.SHORTCUT_DOWN), this::chooseFiles);
+        scene.getAccelerators().put(openKey, this::chooseFiles);
+        for (int i = 0; i < views.size(); i++) {
+            int view = i;
+            scene.getAccelerators().put(viewKey(i), () -> showView(view));
+        }
+        // Ctrl+Tab / Ctrl+Shift+Tab cycle the views, as when the views were tabs
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.TAB, KeyCombination.CONTROL_DOWN),
+                () -> showView((currentIndex() + 1) % views.size()));
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.TAB, KeyCombination.CONTROL_DOWN,
+                KeyCombination.SHIFT_DOWN), () -> showView((currentIndex() + views.size() - 1) % views.size()));
         scene.setOnDragOver(e -> {
             if (e.getDragboard().hasFiles()) {
                 e.acceptTransferModes(TransferMode.COPY);
@@ -270,8 +285,14 @@ public class TelemetryDesktopApp extends Application {
         return logo(size).snapshot(params, null);
     }
 
+    /** Ctrl+1, Ctrl+2, … (⌘ on macOS) select the views in nav order. */
+    private static KeyCombination viewKey(int index) {
+        return new KeyCodeCombination(VIEW_KEYS[index], KeyCombination.SHORTCUT_DOWN);
+    }
+
     private ToggleButton navButton(String text) {
         ToggleButton b = new ToggleButton(text.toUpperCase(Locale.ROOT));
+        b.setTooltip(new Tooltip(text + " (" + viewKey(nav.getToggles().size()).getDisplayText() + ")"));
         b.setToggleGroup(nav);
         b.getStyleClass().add("nav-tab");
         b.setMaxHeight(Double.MAX_VALUE);
@@ -283,8 +304,12 @@ public class TelemetryDesktopApp extends Application {
         nav.selectToggle(nav.getToggles().get(index));
     }
 
+    private int currentIndex() {
+        return nav.getToggles().indexOf(nav.getSelectedToggle());
+    }
+
     private Node currentView() {
-        return views.get(nav.getToggles().indexOf(nav.getSelectedToggle()));
+        return views.get(currentIndex());
     }
 
     private void chooseFiles() {
