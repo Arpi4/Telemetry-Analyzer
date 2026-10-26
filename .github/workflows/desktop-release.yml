@@ -1,0 +1,79 @@
+# Packages the offline desktop app for Windows, macOS and Linux with desktop/package-desktop.sh and
+# attaches the archives to the GitHub Release of a desktop-v* tag. A manual run on a branch only
+# keeps the archives as workflow artifacts.
+name: Desktop release
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Check that the tag matches the project version
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        run: |
+          version=$(mvn -q -B -pl desktop help:evaluate -Dexpression=project.version -DforceStdout | tr -d '\r')
+          if [ "desktop-v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the project version $version (expected desktop-v$version)."
+            exit 1
+          fi
+
+      - name: Build, test and package
+        run: bash desktop/package-desktop.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ runner.os }}
+          path: desktop/target/dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --verify-tag \
+              --title "Telemetry Analyzer desktop ${TAG#desktop-v}" \
+              --notes "Offline desktop app with a bundled Java runtime: download the archive for your system, extract it and start Telemetry Analyzer. The app is not code-signed; see \"Desktop download\" in README2.md for the first-start warnings."
+          fi
