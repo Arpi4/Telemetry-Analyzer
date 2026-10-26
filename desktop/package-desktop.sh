@@ -107,7 +107,7 @@ if [ "$os" = macos ] && [ "${app_version%%.*}" = 0 ]; then
 fi
 # Windows shows the description as the process name (Task Manager) and the vendor as the company
 "$jdk_bin/jpackage" --type app-image --name "$app_name" ${app_version:+--app-version "$app_version"} \
-  --description "$display_name" --vendor "Árpád Zsolt Tóth" \
+  --description "$display_name" --vendor "Tóth Árpád Zsolt" \
   --input "$work/input" --main-jar "$main_jar" --main-class "$main_class" \
   --runtime-image "$work/runtime" --dest "$work/image"
 
