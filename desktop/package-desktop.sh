@@ -56,11 +56,24 @@ case "$(uname -m)" in
   arm64 | aarch64) arch=aarch64 ;;
   *) arch=$(uname -m) ;;
 esac
+display_name="Telemetry Analyzer"
 # Linux launchers are conventionally lower-case without spaces
 if [ "$os" = linux ]; then
   app_name=telemetry-analyzer
 else
-  app_name="Telemetry Analyzer"
+  app_name=$display_name
+fi
+
+if [ "$os" = windows ]; then
+  # jpackage edits the launcher's resources through Win32 calls limited to MAX_PATH (259 characters)
+  exe_path=$(cygpath -w "$work/image/$app_name/$app_name.exe")
+  # cygpath marks paths over the limit with the \\?\ long-path prefix
+  exe_path=${exe_path#\\\\\?\\}
+  if [ "${#exe_path}" -gt 259 ]; then
+    echo "The checkout path is too long for jpackage: $exe_path has ${#exe_path} characters (at most 259)." >&2
+    echo "Move or clone the repository to a shorter path, such as C:\\src\\Telemetry-Analyzer." >&2
+    exit 1
+  fi
 fi
 
 # clean: target/lib must not keep jars of replaced dependency versions
@@ -92,8 +105,9 @@ if [ "$os" = macos ] && [ "${app_version%%.*}" = 0 ]; then
   # macOS bundle versions must not start with 0, so 0.x builds keep jpackage's default (1.0)
   app_version=""
 fi
+# Windows shows the description as the process name (Task Manager) and the vendor as the company
 "$jdk_bin/jpackage" --type app-image --name "$app_name" ${app_version:+--app-version "$app_version"} \
-  --description "Offline motorsport telemetry analysis" \
+  --description "$display_name" --vendor "Árpád Zsolt Tóth" \
   --input "$work/input" --main-jar "$main_jar" --main-class "$main_class" \
   --runtime-image "$work/runtime" --dest "$work/image"
 

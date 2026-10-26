@@ -69,6 +69,7 @@ needs no Java installation and works fully offline.
    [Releases page](https://github.com/Arpi4/Telemetry-Analyzer/releases):
    - Windows (x64): `telemetry-analyzer-<version>-windows-x64.zip`
    - macOS (Apple silicon): `telemetry-analyzer-<version>-macos-aarch64.zip`
+   - macOS (Intel): `telemetry-analyzer-<version>-macos-x64.zip`
    - Linux (x64): `telemetry-analyzer-<version>-linux-x64.tar.gz` (needs GTK 3, as on any common desktop)
 2. Extract it anywhere and start the app:
    - Windows: `Telemetry Analyzer\Telemetry Analyzer.exe`
@@ -89,15 +90,16 @@ delete the extracted folder and that cache.
 
 ### Releasing the desktop app
 Pushing a `desktop-vX.Y.Z` tag runs `.github/workflows/desktop-release.yml`: it builds and tests on
-Windows, macOS and Linux, packages each with `desktop/package-desktop.sh` and creates (or updates) the
-GitHub Release of the tag with the three archives. The tag must match the Maven project version in
-`pom.xml`:
+Windows, macOS (Apple silicon and Intel) and Linux, packages each with `desktop/package-desktop.sh` and
+creates (or updates) the GitHub Release of the tag with the four archives. The tag must match the Maven
+project version in `pom.xml`:
 ```bash
 git tag desktop-v0.1.0
 git push origin desktop-v0.1.0
 ```
 Started manually (*Actions* → *Desktop release* → *Run workflow*) on a branch, the workflow only builds
-the archives and keeps them as workflow artifacts.
+the archives and keeps them as workflow artifacts. GitHub shows that button only once the workflow file
+is on the default branch (`main`), so a test run before the first tag needs the workflow merged first.
 
 ### Packaging locally
 Requires a full JDK 21+ with `jpackage` (e.g. Temurin; the JetBrains runtime bundled with IntelliJ has
@@ -106,8 +108,12 @@ none). In Git Bash on Windows, or on macOS / Linux:
 JAVA_HOME=/path/to/jdk-21 bash desktop/package-desktop.sh    # extra arguments go to Maven, e.g. -DskipTests
 ```
 The archive for the current OS is written to `desktop/target/dist`, the unpacked app to
-`desktop/target/jpackage/image`. jpackage cannot cross-build, so every archive is built on its own OS;
-an Intel Mac build, for example, has to be packaged on an Intel Mac.
+`desktop/target/jpackage/image`. jpackage cannot cross-build, so every archive is built on its own OS
+and CPU architecture (the workflow uses one runner for each).
+
+On Windows, keep the checkout path short: jpackage fails with "Failed to lock: …Telemetry Analyzer.exe"
+(system error 3) once `desktop\target\jpackage\image\Telemetry Analyzer\Telemetry Analyzer.exe` passes
+259 characters. The script checks this before it starts the build.
 
 ## Windows commands
 - Build: `mvnw.cmd install`

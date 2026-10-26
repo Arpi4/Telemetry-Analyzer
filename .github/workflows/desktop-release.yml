@@ -18,7 +18,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        # macos-latest is Apple silicon; macos-15-intel builds the Intel Mac archive
+        os: [windows-latest, macos-latest, macos-15-intel, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     defaults:
@@ -47,7 +48,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: desktop-${{ runner.os }}
+          name: desktop-${{ matrix.os }}
           path: desktop/target/dist/*
           if-no-files-found: error
 
