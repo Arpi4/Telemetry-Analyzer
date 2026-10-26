@@ -53,13 +53,28 @@ The frontend uses:
 - local dev: `http://localhost:8080/api`
 - deployed: `RENDER_API_BASE` (Render public API URL)
 
+It calls `GET /api/sessions`, `/sessions/{id}`, `/sessions/{id}/overview`, `/sessions/{id}/laps/{lapId}/track`
+and `/events`, and `/api/compare/aligned` (`/api/compare` and `/api/compare/segments` are still served but
+no longer used by the web client). The header links to the latest desktop release
+(`https://github.com/Arpi4/Telemetry-Analyzer/releases/latest`), which resolves once a `desktop-v*` tag has
+been released.
+
 ## Desktop run
 ```bash
 mvn -pl core install
 mvn -pl desktop javafx:run
 ```
-Files can be opened from the toolbar or dropped onto the window. Command line arguments are files
-to open; `--screenshots=<dir>` renders the main views to PNG and exits.
+Files can be opened from the toolbar (Ctrl+O, ⌘O on macOS) or dropped onto the window. Ctrl+1 / Ctrl+2 /
+Ctrl+3 switch between Lap analysis, Lap comparison and Import report, and Ctrl+Tab cycles them. The window
+fits the primary screen: it opens maximised on screens smaller than 1600x980, and its minimum size is
+1180x680 (capped to the screen). Command line arguments are files to open. `--screenshots=<dir>` renders the
+main views to PNG and exits (1280x860 with a larger font for print): desktop-window, desktop-lap-analysis,
+desktop-track-map-speed, desktop-lap-comparison, desktop-compare-charts, desktop-track-map-delta and
+desktop-import-report. `--size=WIDTHxHEIGHT` opens the window at a fixed size; together with
+`--screenshots` it renders the views at that size with the normal UI font, e.g. `--size=1280x720` to check
+small screens.
+
+The desktop UI bundles the Rajdhani font (`desktop/src/main/resources/fonts`, SIL Open Font License 1.1).
 
 ## Desktop download
 The desktop client is also released as a self-contained app with its own trimmed Java runtime: it

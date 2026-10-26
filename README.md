@@ -16,8 +16,9 @@ Public URL: https://telemetry-analyzer.vercel.app/web/index.html
 - Channel charts over lap distance (speed, throttle, brake, gear)
 - Distance-aligned lap comparison: speed/pedal overlays, cumulative delta time, exact sector deltas, braking point differences
 - Driving pattern detection: braking zones, corner apexes, time-weighted pedal metrics
-- Track map from GPS or reconstructed from yaw rate (dead reckoning with loop closure)
+- Track map from GPS or reconstructed from yaw rate (dead reckoning with loop closure), coloured by speed with braking points, or by time gained/lost with sector markers in lap comparison – the same map in both clients
 - Web client (Spring Boot REST + Chart.js) and offline JavaFX desktop client sharing one analysis core
+- Desktop app downloadable from [GitHub Releases](https://github.com/Arpi4/Telemetry-Analyzer/releases/latest) for Windows, macOS and Linux, with a bundled Java runtime (no installation, works offline)
 
 ---
 
