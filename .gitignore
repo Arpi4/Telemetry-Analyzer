@@ -14,3 +14,7 @@ Thumbs.db
 # Office lock and temporary files
 ~$*
 ~WRL*.tmp
+
+docs/
+Szakdolgozat.docx
+Szakdolgozat_munkavaltozat.pdf
