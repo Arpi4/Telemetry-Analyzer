@@ -52,6 +52,7 @@
           <select id="sessionSelect" class="select"></select>
           <button type="button" class="btn btn-primary" id="loadSession">Load session</button>
         </div>
+        <p id="sessionStatus" class="status-line" role="status" hidden></p>
       </section>
 
       <section class="panel">
@@ -83,7 +84,7 @@
             </div>
           </div>
           <aside class="chart-wrap track-wrap">
-            <p class="chart-help"><strong>Track map:</strong> the driven line coloured by speed, from blue (slow) to red (fast). B1, B2, … mark where each braking zone starts, the white dot is start/finish. Hover a chart to follow the car.</p>
+            <p class="chart-help"><strong>Track map:</strong> the driven line coloured by speed, from blue (slow) to red (fast). B1, B2, … mark where each braking zone starts, the white dot is start/finish. Hover or tap a chart to follow the car.</p>
             <div id="lapTrackMap"></div>
           </aside>
         </div>
@@ -91,7 +92,7 @@
 
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Lap comparison</h2>
-        <p class="panel-help">Compare selected laps between two uploaded sessions. The summary shows lap-level difference, and the chart overlays both speed traces with different colors.</p>
+        <p class="panel-help">Compare selected laps between two uploaded sessions. Complete laps are listed fastest first (★ marks the fastest); laps much shorter or longer than the session's usual lap are marked (partial). The summary shows the lap-level difference, and the chart overlays both speed traces along the reference lap.</p>
         <div class="compare-grid">
           <label class="field">
             <span class="field-label">Reference session</span>
@@ -117,11 +118,11 @@
         </div>
         <div class="map-layout" style="margin-top: 0.9rem">
           <div class="chart-wrap chart-wrap-wide">
-            <p class="chart-help"><strong>Speed overlay:</strong> same chart, two laps. Red = reference, cyan = compare.</p>
+            <p class="chart-help"><strong>Speed overlay:</strong> both laps over the reference lap distance. Red = reference, cyan = compare.</p>
             <canvas id="compareSpeedChart"></canvas>
           </div>
           <aside class="chart-wrap track-wrap">
-            <p class="chart-help"><strong>Time delta map:</strong> the reference lap's line, green where the compare lap gains time and red where it loses. S2, S3, … mark the sector starts, coloured by that sector's delta.</p>
+            <p class="chart-help"><strong>Time delta map:</strong> the reference lap's line, green where the compare lap gains time and red where it loses. S2, S3, … mark the sector starts, coloured by that sector's delta. Hover or tap the speed overlay to follow the car.</p>
             <div id="compareTrackMap"></div>
             <div id="compareSectors" class="sector-strip" hidden></div>
           </aside>

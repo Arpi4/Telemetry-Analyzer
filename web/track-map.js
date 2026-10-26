@@ -24,6 +24,8 @@
   /** Upper bound of drawn line segments; long 200 Hz laps are thinned to this. */
   const MAX_SEGMENTS = 4000;
   const MIN_HEIGHT = 200;
+  /** A marker label closer than this (px) to the S/F dot or an earlier label is left out. */
+  const MIN_LABEL_GAP = 14;
 
   const NO_TRACK = "No GPS or yaw-rate channel in this lap: track map unavailable.";
 
@@ -197,6 +199,16 @@
       }
     }
 
+    /** Cursor at a lap distance in metres; NaN hides it. */
+    setCursorDistance(distance) {
+      this.setCursorIndex(Number.isFinite(distance) ? this.indexOfDistance(distance) : -1);
+    }
+
+    /** Outline sample index at or after a lap distance (metres), or -1 without a track. */
+    indexOfDistance(distance) {
+      return this.outline ? Math.min(indexAtOrAfter(this.outline.distance, distance), this.outline.x.length - 1) : -1;
+    }
+
     requestRender() {
       if (!this.frame) {
         this.frame = requestAnimationFrame(() => {
@@ -220,16 +232,21 @@
       return f < 0 ? mix(NEUTRAL, GAIN, -f) : mix(NEUTRAL, LOSS, f);
     }
 
-    /** Canvas height that fits the outline's aspect ratio into the available width. */
+    /**
+     * Canvas height that fits the outline's aspect ratio into the available width, within the
+     * CSS max-height of the canvas (the pinned map of narrow layouts sets one).
+     */
     preferredHeight(w) {
+      const cap = parseFloat(getComputedStyle(this.canvas).maxHeight) || Infinity;
       if (!this.bounds) {
         // While loading keep the previous height, so the page does not jump twice.
-        return this.loading && w === this.size.w && this.size.h ? this.size.h : clamp(Math.round(w * 0.55), 200, 300);
+        const h = this.loading && w === this.size.w && this.size.h ? this.size.h : clamp(Math.round(w * 0.55), 200, 300);
+        return Math.min(h, cap);
       }
       const { minX, maxX, minY, maxY } = this.bounds;
       const aspect = (maxY - minY) / Math.max(1e-9, maxX - minX);
       const maxH = Math.max(MIN_HEIGHT, Math.min(window.innerHeight * 0.75, w * 1.2));
-      return Math.round(clamp((w - 2 * PAD) * aspect + 2 * PAD + BOTTOM_RESERVE, MIN_HEIGHT, maxH));
+      return Math.round(Math.min(cap, clamp((w - 2 * PAD) * aspect + 2 * PAD + BOTTOM_RESERVE, MIN_HEIGHT, maxH)));
     }
 
     render() {
@@ -301,18 +318,25 @@
 
       g.textAlign = "left";
       g.textBaseline = "middle";
-      g.fillStyle = "#ffffff";
-      dot(g, px(0), py(0), 5);
-      label(g, "S/F", px(0) + 8, py(0) - 8, `600 11px ${FONT}`, "#ffffff");
-
+      // On short laps (out-lap fragments) markers bunch up: keep their dots, but drop labels
+      // that would overprint S/F or an earlier label. S/F is drawn last so it stays on top.
+      const sx = px(0);
+      const sy = py(0);
+      const labelled = [[sx, sy]];
       for (const m of this.markers) {
-        const i = indexAtOrAfter(this.outline.distance, m.distance);
-        const mx = px(Math.min(i, n - 1));
-        const my = py(Math.min(i, n - 1));
+        const i = this.indexOfDistance(m.distance);
+        const mx = px(i);
+        const my = py(i);
         g.fillStyle = m.color;
         dot(g, mx, my, 4);
-        label(g, m.label, mx + 6, my - 6, `600 10px ${FONT}`, LABEL);
+        if (labelled.every(([lx, ly]) => Math.hypot(mx - lx, my - ly) >= MIN_LABEL_GAP)) {
+          labelled.push([mx, my]);
+          label(g, m.label, mx + 6, my - 6, `600 10px ${FONT}`, LABEL);
+        }
       }
+      g.fillStyle = "#ffffff";
+      dot(g, sx, sy, 5);
+      label(g, "S/F", sx + 8, sy - 8, `600 11px ${FONT}`, "#ffffff");
 
       if (colored) {
         this.drawLegend(g, w, h);
@@ -359,11 +383,6 @@
         g.lineWidth = 1.5;
         g.stroke();
       }
-    }
-
-    /** Outline sample index at or after a lap distance (metres), or -1 without a track. */
-    indexOfDistance(distance) {
-      return this.outline ? Math.min(indexAtOrAfter(this.outline.distance, distance), this.outline.x.length - 1) : -1;
     }
   }
 
