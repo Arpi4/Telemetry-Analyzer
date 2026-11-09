@@ -109,8 +109,8 @@ Windows, macOS (Apple silicon and Intel) and Linux, packages each with `desktop/
 creates (or updates) the GitHub Release of the tag with the four archives. The tag must match the Maven
 project version in `pom.xml`:
 ```bash
-git tag desktop-v0.1.0
-git push origin desktop-v0.1.0
+git tag desktop-v0.2.0
+git push origin desktop-v0.2.0
 ```
 Started manually (*Actions* → *Desktop release* → *Run workflow*) on a branch, the workflow only builds
 the archives and keeps them as workflow artifacts. GitHub shows that button only once the workflow file
