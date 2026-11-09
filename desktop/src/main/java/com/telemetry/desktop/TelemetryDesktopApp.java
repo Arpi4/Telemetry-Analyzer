@@ -73,6 +73,8 @@ public class TelemetryDesktopApp extends Application {
     private static final double MIN_WIDTH = 1180;
     private static final double MIN_HEIGHT = 680;
     private static final KeyCode[] VIEW_KEYS = {KeyCode.DIGIT1, KeyCode.DIGIT2, KeyCode.DIGIT3};
+    /** Import log line length; about 160 Consolas characters are visible at the minimum window width. */
+    private static final int REPORT_COLUMNS = 132;
 
     private final SessionModel model = new SessionModel();
     private final LapAnalysisView lapView = new LapAnalysisView(model);
@@ -389,12 +391,42 @@ public class TelemetryDesktopApp extends Application {
         sb.append(timestamp()).append(' ').append(report.getSourceFile()).append(": ")
                 .append(report.getErrors().isEmpty() ? "OK" : "FAILED").append('\n');
         for (String err : report.getErrors()) {
-            sb.append("    ERROR ").append(err).append('\n');
+            appendWrapped(sb, "    ERROR ", err);
         }
         for (String w : report.getWarnings()) {
-            sb.append("    note  ").append(w).append('\n');
+            appendWrapped(sb, "    note  ", w);
         }
         reportArea.appendText(sb.toString());
+    }
+
+    /**
+     * Appends {@code prefix + message}, wrapped at spaces to {@link #REPORT_COLUMNS} characters
+     * with the continuation lines indented under the message, so long import notes (unit
+     * decisions, replaced channels) can be read without scrolling sideways.
+     */
+    private static void appendWrapped(StringBuilder sb, String prefix, String message) {
+        String indent = " ".repeat(prefix.length());
+        int width = Math.max(20, REPORT_COLUMNS - prefix.length());
+        String lead = prefix;
+        for (String paragraph : message.split("\n", -1)) {
+            StringBuilder line = new StringBuilder(lead);
+            int used = 0;
+            for (String word : paragraph.split(" ")) {
+                if (used > 0 && used + 1 + word.length() > width) {
+                    sb.append(line).append('\n');
+                    line = new StringBuilder(indent);
+                    used = 0;
+                }
+                if (used > 0) {
+                    line.append(' ');
+                    used++;
+                }
+                line.append(word);
+                used += word.length();
+            }
+            sb.append(line).append('\n');
+            lead = indent;
+        }
     }
 
     private void exportCurrentView() {

@@ -18,7 +18,7 @@ mvn install               # builds core, backend, desktop and runs all tests
 The `test_data*.csv` files in the repository root are sample MoTeC CSV exports for trying the clients.
 
 ## REST API (additions)
-- `GET /api/sessions/{id}/overview` – complete laps, fastest lap, theoretical best lap
+- `GET /api/sessions/{id}/overview` – complete laps, fastest lap, theoretical best lap, lap-time consistency and the excluded out-/in-laps
 - `GET /api/sessions/{id}/laps/{lapId}/events` – braking zones, corners, driving metrics
 - `GET /api/sessions/{id}/laps/{lapId}/track` – track outline (GPS or dead reckoning)
 - `GET /api/compare/aligned?referenceSessionId=&referenceLapId=&compareSessionId=&compareLapId=` – distance-aligned comparison

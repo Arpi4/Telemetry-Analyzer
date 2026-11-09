@@ -61,6 +61,10 @@ public class CsvTelemetryParser implements TelemetryParser {
                 String lonKey = TelemetryChannelResolver.findLon(headers);
                 String distKey = TelemetryChannelResolver.findDistance(headers);
                 String yawKey = TelemetryChannelResolver.findYawRate(headers);
+                String latAccKey = TelemetryChannelResolver.findLateralAcceleration(headers);
+                String lonAccKey = TelemetryChannelResolver.findLongitudinalAcceleration(headers);
+                String steerKey = TelemetryChannelResolver.findSteeringAngle(headers);
+                String rpmKey = TelemetryChannelResolver.findEngineRpm(headers);
 
                 if (speedKey == null || throttleKey == null || brakeKey == null || gearKey == null) {
                     report.addError("Missing required channels in CSV. Need speed, throttle, brake, and gear "
@@ -73,6 +77,7 @@ public class CsvTelemetryParser implements TelemetryParser {
                 }
 
                 int skipped = 0;
+                DoublePool pool = new DoublePool();
                 for (CSVRecord rec : csvParser) {
                     try {
                         double timestamp = parseTimestamp(rec, tsKey, rec.getRecordNumber());
@@ -84,7 +89,11 @@ public class CsvTelemetryParser implements TelemetryParser {
                         Double lon = parseOptionalDouble(rec, lonKey);
                         Double dist = parseOptionalDouble(rec, distKey);
                         Double yaw = parseOptionalDouble(rec, yawKey);
-                        points.add(new TelemetryPoint(timestamp, speed, throttle, brake, gear, lat, lon, dist, yaw));
+                        points.add(new TelemetryPoint(timestamp, speed, throttle, brake, gear, lat, lon, dist, yaw,
+                                pool.share(parseLenientDouble(rec, latAccKey)),
+                                pool.share(parseLenientDouble(rec, lonAccKey)),
+                                pool.share(parseLenientDouble(rec, steerKey)),
+                                pool.share(parseLenientDouble(rec, rpmKey))));
                     } catch (Exception ex) {
                         skipped++;
                     }
@@ -92,6 +101,8 @@ public class CsvTelemetryParser implements TelemetryParser {
                 if (skipped > 0) {
                     report.addWarning("Skipped " + skipped + " malformed CSV rows.");
                 }
+                ChannelUnits.normalizeChannels(points, column(latAccKey), column(lonAccKey), column(steerKey),
+                        speedKey, "CSV", report);
             }
         } catch (Exception ex) {
             report.addError("Failed to parse CSV: " + ex.getMessage());
@@ -147,6 +158,24 @@ public class CsvTelemetryParser implements TelemetryParser {
             return null;
         }
         return parseDoubleLoose(raw);
+    }
+
+    /** Optional channel column with the unit written into its header, if any. */
+    private static ChannelUnits.Column column(String key) {
+        return key == null ? ChannelUnits.Column.ABSENT
+                : new ChannelUnits.Column(key, TelemetryChannelResolver.unitSuffix(key));
+    }
+
+    /** For the vehicle-dynamics channels: a missing or malformed cell is null, the row is kept. */
+    private static Double parseLenientDouble(CSVRecord rec, String key) {
+        if (key == null || !rec.isSet(key)) {
+            return null;
+        }
+        try {
+            return parseOptionalDouble(rec, key);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     /**

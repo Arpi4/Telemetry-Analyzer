@@ -319,6 +319,92 @@ body {
   border: 1px solid var(--border);
 }
 
+/* Charts of channels the loaded file lacks. */
+.chart-wrap[hidden] {
+  display: none;
+}
+
+/* Several charts in one column of a .map-layout. */
+.chart-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+/* Fixed-height chart (maintainAspectRatio: false), so it does not get flat on phones. */
+.chart-box {
+  position: relative;
+  height: 240px;
+}
+
+/* 2:1 like the other charts; 240 px high on phones (below), where the speed overlay's two-line
+   legend would otherwise leave the plot only a sliver. (A min-height next to aspect-ratio would
+   widen the box to 480 px.) */
+.chart-box.chart-box-ratio {
+  height: auto;
+  aspect-ratio: 2 / 1;
+}
+
+/* Session summary of the lap charts panel: fastest, theoretical best, consistency. */
+.lap-summary {
+  margin: 0 0 1rem;
+}
+
+.lap-summary[hidden] {
+  display: none;
+}
+
+.summary-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.6rem;
+}
+
+.summary-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0a0e14;
+}
+
+.summary-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.summary-value {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.summary-detail {
+  font-size: 0.8rem;
+  color: #9fb0c4;
+  overflow-wrap: anywhere;
+}
+
+.lap-summary > .chart-help {
+  margin: 0.6rem 0 0;
+  max-width: 90ch;
+}
+
+.lap-summary > .chart-help[hidden] {
+  display: none;
+}
+
 .chart-help {
   margin: 0 0 0.6rem;
   font-size: 0.85rem;
@@ -461,6 +547,20 @@ body {
     order: -1;
     margin-top: 0;
   }
+
+  /* The pinned map lets go when the last chart reaches it, so the last chart pushes the map
+     away instead of ending up under it. A sticky box stays inside its parent's content box:
+     the negative margin ends that box at the top of the last chart (app.js measures
+     --map-release, the last chart plus the gap above it), and the padding gives the height
+     back, so nothing on the page moves. */
+  .map-layout {
+    padding-bottom: var(--map-release, 0px);
+  }
+
+  .map-layout > .chart-grid,
+  .map-layout > .chart-stack {
+    margin-bottom: calc(-1 * var(--map-release, 0px));
+  }
 }
 
 .track-map {
@@ -594,6 +694,24 @@ body {
 
   .chart-wrap {
     padding: 0.6rem 0.5rem;
+  }
+
+  .chart-box {
+    height: 200px;
+  }
+
+  .chart-box.chart-box-ratio {
+    aspect-ratio: auto;
+    height: 240px;
+  }
+
+  .summary-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* An odd last tile fills its row instead of leaving a hole. */
+  .summary-tile:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
 
   .track-map-caption {

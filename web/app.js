@@ -14,9 +14,19 @@ let speedChart;
 let throttleChart;
 let brakeChart;
 let gearChart;
+let steeringChart;
+let accelChart;
+let rpmChart;
 let compareSpeedChart;
+let compareDeltaChart;
 
-/** @type {{ points: any[], labels: any[], speed: number[], throttle: number[], brake: number[], gear: number[], lapBoundaries?: any[] } | null} */
+/**
+ * Chart series of the selected lap. The optional channels (steeringAngle, lateralAcceleration,
+ * longitudinalAcceleration, engineRpm) are null when no sample of the lap has them.
+ * @type {{ points: any[], labels: any[], speed: number[], throttle: number[], brake: number[], gear: number[],
+ *   steering: (number|null)[] | null, lateralG: (number|null)[] | null, longitudinalG: (number|null)[] | null,
+ *   rpm: (number|null)[] | null, lapBoundaries?: any[] } | null}
+ */
 let fullLapSnapshot = null;
 /** @type {string | null} */
 let currentSessionId = null;
@@ -39,8 +49,10 @@ let sessionRequest = 0;
 let lapMapRequest = 0;
 let compareRequest = 0;
 const compareLapRequests = { ref: 0, cmp: 0 };
-/** Reference lap distance (m) of each point of the compare speed chart. */
+/** Reference lap distance (m) of each point of the compare speed and time delta charts. */
 let compareChartDistance = [];
+/** Chart -> data index that mirrorChartHover shows on the next frame. */
+const mirroredHover = new Map();
 
 async function parseJsonResponse(res) {
   const text = await res.text();
@@ -109,6 +121,46 @@ const lapBoundariesPlugin = {
 };
 
 Chart.register(lapBoundariesPlugin);
+
+/** Track-map cursor callbacks of the charts linked by linkChartToMap, by canvas id. */
+const chartCursorLinks = new Map();
+
+/**
+ * Moves the track-map cursor of a linked chart to the sample its tooltip shows, once Chart.js has
+ * handled the pointer event, so the tooltip, a mirrored tooltip and the map cursor share one
+ * index. (A hit test of our own could land a pixel, and so a sample or more, away from the one
+ * Chart.js picks.) Replayed events (a chart update) are left alone: they move no pointer.
+ */
+const cursorLinkPlugin = {
+  id: "cursorLink",
+  afterEvent(chart, args) {
+    const moveCursor = chartCursorLinks.get(chart.canvas?.id);
+    if (!moveCursor || args.replay) {
+      return;
+    }
+    // The pointer on this chart wins over a hover mirrored into it that has not been drawn yet
+    // (the chart the pointer just left clears its partner: that must not clear this one).
+    mirroredHover.delete(chart);
+    const active = chart.tooltip ? chart.tooltip.getActiveElements() : chart.getActiveElements();
+    moveCursor(active.length ? active[0].index : -1);
+  }
+};
+
+Chart.register(cursorLinkPlugin);
+
+/** Grid line colours that pick out y = 0 on charts with signed values. */
+const zeroLineGrid = {
+  color: (ctx) => (ctx.tick?.value === 0 ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.06)")
+};
+
+/**
+ * Y axis of a chart with signed values: the zero line stands out, and every tick is kept, as
+ * on short phone charts auto-skipping drops every other one, 0 among them (3, 1, -1, -3).
+ */
+function signedYAxis(options) {
+  options.scales.y.grid = zeroLineGrid;
+  options.scales.y.ticks = { ...options.scales.y.ticks, autoSkip: false };
+}
 
 /**
  * Fetches JSON once per key; a failed request is dropped from the cache so it can be retried.
@@ -310,23 +362,13 @@ function drawCompareTrackMap(outline, comparison, sectors) {
     })));
 }
 
-/** Calls moveCursor with the chart index under the pointer, or -1 when it leaves the chart. */
+/**
+ * Calls moveCursor with the data index the chart's tooltip shows while the chart is hovered or
+ * tapped (cursorLinkPlugin), or -1 when the tooltip goes or the mouse leaves the chart.
+ */
 function linkChartToMap(canvasId, moveCursor) {
-  const canvas = document.getElementById(canvasId);
-  if (!canvas) {
-    return;
-  }
-  const follow = (event) => {
-    const chart = Chart.getChart(canvas);
-    if (!chart) {
-      return;
-    }
-    const hit = chart.getElementsAtEventForMode(event, "index", { intersect: false }, false);
-    moveCursor(hit.length ? hit[0].index : -1);
-  };
-  canvas.addEventListener("pointermove", follow);
-  canvas.addEventListener("pointerdown", follow);
-  canvas.addEventListener("pointerleave", (event) => {
+  chartCursorLinks.set(canvasId, moveCursor);
+  document.getElementById(canvasId)?.addEventListener("pointerleave", (event) => {
     if (event.pointerType !== "touch") {
       moveCursor(-1);
     }
@@ -337,7 +379,7 @@ function redrawFullLapCharts() {
   if (!fullLapSnapshot) {
     return;
   }
-  const { labels, speed, throttle, brake, gear } = fullLapSnapshot;
+  const { labels, speed, throttle, brake, gear, steering, lateralG, longitudinalG, rpm } = fullLapSnapshot;
   speedChart = drawOrUpdateChart(speedChart, "speedChart", labels, [
     { label: "Speed (km/h)", data: speed, borderColor: "#ff3d2e", backgroundColor: "rgba(255,61,46,0.12)", fill: false, tension: 0.15, pointRadius: 0, borderWidth: 2 }
   ]);
@@ -350,6 +392,35 @@ function redrawFullLapCharts() {
   gearChart = drawOrUpdateChart(gearChart, "gearChart", labels, [
     { label: "Gear", data: gear, borderColor: "#c084fc", tension: 0.1, pointRadius: 0, borderWidth: 2 }
   ]);
+  steeringChart = drawOptionalChart(steeringChart, "steeringChart", labels, [
+    steering && { label: "Steering angle (deg)", data: steering, borderColor: "#14a394", tension: 0.15, pointRadius: 0, borderWidth: 2 }
+  ], signedYAxis);
+  accelChart = drawOptionalChart(accelChart, "accelChart", labels, [
+    lateralG && { label: "Lateral (g)", data: lateralG, borderColor: "#2a94da", tension: 0.15, pointRadius: 0, borderWidth: 1.5 },
+    longitudinalG && { label: "Longitudinal (g)", data: longitudinalG, borderColor: "#c9800a", tension: 0.15, pointRadius: 0, borderWidth: 1.5 }
+  ], signedYAxis);
+  rpmChart = drawOptionalChart(rpmChart, "rpmChart", labels, [
+    rpm && { label: "Engine speed (1/min)", data: rpm, borderColor: "#d0609a", tension: 0.1, pointRadius: 0, borderWidth: 2 }
+  ]);
+}
+
+/**
+ * A chart of channels the lap may lack: datasets left out (falsy) are dropped, and without any
+ * the chart is removed and its box hidden, so files without the channel show no empty chart.
+ */
+function drawOptionalChart(chartRef, canvasId, labels, datasets, customize) {
+  const canvas = document.getElementById(canvasId);
+  const present = datasets.filter(Boolean);
+  const wrap = canvas?.closest(".chart-wrap");
+  if (wrap) {
+    // Shown before drawing, so Chart.js measures the visible box.
+    wrap.hidden = present.length === 0;
+  }
+  if (!present.length) {
+    chartRef?.destroy();
+    return undefined;
+  }
+  return drawOrUpdateChart(chartRef, canvasId, labels, present, true, customize);
 }
 
 async function uploadTelemetry() {
@@ -429,6 +500,8 @@ function buildChartOptions(showLapBoundaries, boundaries) {
   const options = {
     responsive: true,
     maintainAspectRatio: true,
+    // A lap has ~20 000 samples at 200 Hz: animating every point made a lap switch take seconds.
+    animation: false,
     interaction: { mode: "index", intersect: false },
     plugins: {
       legend: {
@@ -438,7 +511,9 @@ function buildChartOptions(showLapBoundaries, boundaries) {
     },
     scales: {
       x: {
-        ticks: { color: "#8b9cb3", maxTicksLimit: 12 },
+        // Level labels, thinned out where they would touch: tilted ones took about a third of
+        // the height of a phone-sized chart. Wide charts fit all 12 labels level anyway.
+        ticks: { color: "#8b9cb3", maxTicksLimit: 12, maxRotation: 0, autoSkipPadding: 16 },
         grid: { color: "rgba(255,255,255,0.06)" }
       },
       y: {
@@ -453,12 +528,18 @@ function buildChartOptions(showLapBoundaries, boundaries) {
   return options;
 }
 
-function drawOrUpdateChart(chartRef, canvasId, labels, datasets, showLapBoundaries = true) {
+/** @param {(options: any) => void} [customize] adjusts the shared options of this chart */
+function drawOrUpdateChart(chartRef, canvasId, labels, datasets, showLapBoundaries = true, customize) {
   const boundaries = showLapBoundaries ? (fullLapSnapshot?.lapBoundaries || []) : [];
+  const options = buildChartOptions(showLapBoundaries, boundaries);
+  customize?.(options);
   if (chartRef) {
+    // A hover kept from the old data (a touch, or a mirrored one) may point past the new data.
+    chartRef.setActiveElements([]);
+    chartRef.tooltip?.setActiveElements([], { x: 0, y: 0 });
     chartRef.data.labels = labels;
     chartRef.data.datasets = datasets;
-    chartRef.options = buildChartOptions(showLapBoundaries, boundaries);
+    chartRef.options = options;
     chartRef.update();
     return chartRef;
   }
@@ -466,8 +547,22 @@ function drawOrUpdateChart(chartRef, canvasId, labels, datasets, showLapBoundari
   return new Chart(document.getElementById(canvasId), {
     type: "line",
     data: { labels, datasets },
-    options: buildChartOptions(showLapBoundaries, boundaries)
+    options
   });
+}
+
+/** Values of an optional channel, missing samples as null (gaps); null when no sample has it. */
+function optionalChannel(points, key) {
+  let present = false;
+  const values = points.map((p) => {
+    const v = p[key];
+    if (typeof v === "number" && Number.isFinite(v)) {
+      present = true;
+      return v;
+    }
+    return null;
+  });
+  return present ? values : null;
 }
 
 function buildLapSnapshot(lap) {
@@ -477,7 +572,12 @@ function buildLapSnapshot(lap) {
   const throttle = points.map((p) => p.throttle);
   const brake = points.map((p) => p.brake);
   const gear = points.map((p) => p.gear);
-  return { points, labels, speed, throttle, brake, gear, lapBoundaries: [] };
+  // Absent from the JSON when the file has no such channel (the backend leaves nulls out).
+  const steering = optionalChannel(points, "steeringAngle");
+  const lateralG = optionalChannel(points, "lateralAcceleration");
+  const longitudinalG = optionalChannel(points, "longitudinalAcceleration");
+  const rpm = optionalChannel(points, "engineRpm");
+  return { points, labels, speed, throttle, brake, gear, steering, lateralG, longitudinalG, rpm, lapBoundaries: [] };
 }
 
 function formatLapTime(seconds) {
@@ -536,6 +636,116 @@ function updateLapToolbar() {
   nextLapBtn.disabled = currentLapIndex >= currentSessionLaps.length - 1;
 }
 
+function summaryTile(label, value, detail, title) {
+  const tile = document.createElement("div");
+  tile.className = "summary-tile";
+  if (title) {
+    tile.title = title;
+  }
+  const k = document.createElement("span");
+  k.className = "summary-label";
+  k.textContent = label;
+  const v = document.createElement("span");
+  v.className = "summary-value";
+  v.textContent = value;
+  tile.append(k, v);
+  if (detail) {
+    const d = document.createElement("span");
+    d.className = "summary-detail";
+    d.textContent = detail;
+    tile.append(d);
+  }
+  return tile;
+}
+
+/** Flying laps out of the complete ones, and the laps left out with their reason (speeds on hover). */
+function flyingLapsTile(flying, complete, excluded, usedLaps) {
+  const speed = (v) => (Number.isFinite(v) ? `${Math.round(v)} km/h` : "n/a");
+  return summaryTile("Flying laps", `${flying} / ${complete}`,
+    excluded.length ? `${excluded.map((e) => `${e.lapId} (${e.reason})`).join(", ")} left out` : "none left out",
+    [...excluded.map((e) => `${e.lapId}: ${e.reason}, ${speed(e.entrySpeed)} at the start, ${speed(e.exitSpeed)} at the end`),
+      usedLaps].filter(Boolean).join("\n"));
+}
+
+/**
+ * Fastest lap, theoretical best lap and lap-time consistency of the loaded session (from
+ * /overview). Parts the overview leaves null are left out; without any the box is hidden.
+ */
+function renderLapSummary(overview) {
+  const box = document.getElementById("lapSummary");
+  const tiles = document.getElementById("lapSummaryTiles");
+  const help = document.getElementById("lapSummaryHelp");
+  if (!box || !tiles || !help) {
+    return;
+  }
+  tiles.innerHTML = "";
+  const laps = Array.isArray(overview?.laps) ? overview.laps : [];
+  const fastest = laps.find((l) => l.lapId === overview?.fastestLapId);
+  const completeCount = laps.filter((l) => l.complete).length;
+  const notes = [];
+  if (laps.length) {
+    tiles.append(summaryTile("Complete laps", `${completeCount} / ${laps.length}`));
+  }
+  if (fastest) {
+    tiles.append(summaryTile("Fastest lap", formatLapTime(fastest.lapTime), fastest.lapId));
+  }
+  const best = overview?.theoreticalBest;
+  if (best && Number.isFinite(best.lapTime) && best.lapTime > 0) {
+    const sectors = Array.isArray(best.sectorTimes) ? best.sectorTimes : [];
+    const gap = fastest ? `${formatSigned(best.lapTime - fastest.lapTime, 3)} s to fastest` : "";
+    const perSector = sectors.map((t, i) => `S${i + 1} ${t.toFixed(3)} s (${best.sectorLapIds?.[i] ?? "?"})`).join("\n");
+    tiles.append(summaryTile("Theoretical best", formatLapTime(best.lapTime), gap,
+      `Best time of each sector, from the lap in brackets:\n${perSector}`));
+    notes.push(`Theoretical best: the best time of each of the ${sectors.length || SECTOR_COUNT} equal-length sectors over the complete laps, added up.`);
+  }
+  const c = overview?.consistency;
+  // Out-laps and in-laps left out of the consistency figures: in consistency, and at the top level
+  // also when too few flying laps remain for consistency (older backends send neither).
+  const excluded = Array.isArray(c?.excludedLaps) ? c.excludedLaps
+    : Array.isArray(overview?.excludedLaps) ? overview.excludedLaps : null;
+  const flyingLapRule = "Flying laps: the complete laps without out-laps and in-laps. A lap that starts below 0.6 × "
+    + "the median start speed of the other complete laps is an out-lap (pit exit); one that ends below 0.6 × their "
+    + "median end speed is an in-lap (pit entry). When a slow line crossing ends one lap and starts the next, both "
+    + "are left out.";
+  if (c && Number.isFinite(c.lapTimeStdDev)) {
+    const lapKind = excluded ? "flying" : "complete";
+    if (excluded) {
+      const usedLaps = Array.isArray(c.lapIds) && c.lapIds.length ? `Figures use ${c.lapIds.join(", ")}.` : "";
+      tiles.append(flyingLapsTile(c.lapCount, c.lapCount + excluded.length, excluded, usedLaps));
+    }
+    tiles.append(summaryTile("Std. deviation", `σ ${c.lapTimeStdDev.toFixed(3)} s`,
+      `CV ${c.coefficientOfVariationPercent.toFixed(2)} % · ${c.lapCount} laps`,
+      `Mean ${formatLapTime(c.meanLapTime)} · median ${formatLapTime(c.medianLapTime)}`));
+    tiles.append(summaryTile("Spread", `${c.spread.toFixed(3)} s`, "slowest − fastest"));
+    const k = c.leastConsistentSector;
+    const sectorStd = Array.isArray(c.sectorStdDevs) ? c.sectorStdDevs[k - 1] : NaN;
+    if (Number.isFinite(sectorStd)) {
+      tiles.append(summaryTile("Least consistent", `S${k}`, `σ ${sectorStd.toFixed(3)} s`,
+        c.sectorStdDevs.map((s, i) => `S${i + 1} σ ${s.toFixed(3)} s`).join("\n")));
+    }
+    if (excluded) {
+      notes.push(flyingLapRule);
+    }
+    notes.push(`σ: sample standard deviation of the ${lapKind} lap times; CV: σ as a share of the mean lap time; `
+      + `spread: slowest minus fastest ${lapKind} lap; least consistent: the sector whose time varies most from lap to lap.`);
+  } else if (completeCount >= 2) {
+    // The laps consistency is taken over: complete, with a lap time.
+    const timed = laps.filter((l) => l.complete && l.lapTime > 0).length;
+    if (excluded?.length && timed >= 2) {
+      tiles.append(flyingLapsTile(Math.max(0, timed - excluded.length), timed, excluded, ""));
+    }
+    notes.push("Consistency figures need at least two flying laps: out-laps and in-laps (pit exit and entry) are left out.");
+    if (excluded?.length) {
+      notes.push(flyingLapRule);
+    }
+  } else if (laps.length) {
+    notes.push("Consistency figures need at least two complete laps.");
+  }
+  help.textContent = notes.join(" ");
+  help.hidden = notes.length === 0;
+  box.hidden = tiles.childElementCount === 0;
+}
+
 function renderCurrentLap() {
   const lap = currentSessionLaps[currentLapIndex];
   if (!lap) {
@@ -571,6 +781,7 @@ async function loadSelectedSession() {
   const session = details.value;
   currentSessionId = sessionId;
   currentSessionOverview = overview.status === "fulfilled" ? overview.value : null;
+  renderLapSummary(currentSessionOverview);
   currentSessionLaps = Array.isArray(session?.laps)
     ? session.laps.filter((lap) => Array.isArray(lap?.points) && lap.points.length > 0)
     : [];
@@ -682,7 +893,86 @@ function renderCompareSpeedChart(comparison) {
       pointRadius: 0,
       borderWidth: 2
     }
-  ], false);
+  ], false, (options) => {
+    // Sized by its .chart-box (2:1, at least 240 px high), so the legend leaves room on phones.
+    options.maintainAspectRatio = false;
+  });
+}
+
+/**
+ * Cumulative time delta (compare minus reference, s) on the same distance points as the speed
+ * overlay, red above zero (compare behind) and green below (ahead); null clears the chart.
+ */
+function renderCompareDeltaChart(comparison) {
+  if (!comparison) {
+    if (compareDeltaChart) {
+      compareDeltaChart.data.labels = [];
+      compareDeltaChart.data.datasets = [];
+      compareDeltaChart.update();
+    }
+    return;
+  }
+  const labels = compareChartDistance.map((d) => `${Math.round(d)} m`);
+  compareDeltaChart = drawOrUpdateChart(compareDeltaChart, "compareDeltaChart", labels, [
+    {
+      label: `Δt (${comparison.compareLapId} − ${comparison.referenceLapId})`,
+      data: downsampleSeries(comparison.deltaTime, TRACK_CHART_MAX_POINTS),
+      borderColor: "#cbd5e1",
+      fill: { target: "origin", above: "rgba(239,68,68,0.32)", below: "rgba(34,197,94,0.32)" },
+      tension: 0,
+      pointRadius: 0,
+      borderWidth: 1.5
+    }
+  ], false, (options) => {
+    // Fixed height from CSS (.chart-box): an aspect ratio would make it too flat on phones.
+    options.maintainAspectRatio = false;
+    options.plugins.legend.display = false;
+    options.plugins.tooltip = {
+      callbacks: {
+        label: (item) => {
+          const v = Number(item.parsed.y.toFixed(3));
+          const side = v > 0 ? "compare behind" : v < 0 ? "compare ahead" : "level";
+          // Same number format as the speed overlay's tooltip shown next to it (the chart locale).
+          const text = new Intl.NumberFormat(item.chart.options.locale,
+            { minimumFractionDigits: 3, maximumFractionDigits: 3, signDisplay: "exceptZero" }).format(v);
+          return `Δt ${text} s (${side})`;
+        }
+      }
+    };
+    signedYAxis(options);
+    options.scales.y.title = { display: true, text: "Δt (s)", color: "#8b9cb3" };
+  });
+}
+
+/**
+ * Shows the hover tooltip of a chart at a data index, as if the pointer were there, for charts
+ * that share their x axis with the hovered one; -1 clears it. Redraws once per frame.
+ */
+function mirrorChartHover(chart, index) {
+  if (!chart) {
+    return;
+  }
+  const pending = mirroredHover.has(chart);
+  mirroredHover.set(chart, index);
+  if (pending) {
+    return;
+  }
+  requestAnimationFrame(() => {
+    if (!mirroredHover.has(chart)) {
+      return; // cancelled by a pointer event on the chart itself (cursorLinkPlugin)
+    }
+    const i = mirroredHover.get(chart);
+    mirroredHover.delete(chart);
+    const n = chart.data.labels?.length ?? 0;
+    const active = i >= 0 && i < n ? chart.data.datasets.map((_, datasetIndex) => ({ datasetIndex, index: i })) : [];
+    const current = chart.getActiveElements();
+    if (current.length === active.length && current.every((e, k) => e.index === active[k].index)) {
+      return;
+    }
+    chart.setActiveElements(active);
+    chart.tooltip?.setActiveElements(active, { x: 0, y: 0 });
+    chart.update("none");
+  });
 }
 
 /** Text summary of a distance-aligned comparison. */
@@ -746,12 +1036,14 @@ async function compareSessions() {
     const message = `Cannot align the laps: ${aligned.reason.message}`;
     compareTrackMap.showMessage(message);
     renderCompareSpeedChart(null);
+    renderCompareDeltaChart(null);
     out.textContent = message;
     return;
   }
   const { comparison, sectors, finalDelta } = aligned.value;
   renderSectorStrip(sectors, finalDelta);
   renderCompareSpeedChart(comparison);
+  renderCompareDeltaChart(comparison);
   out.textContent = compareSummary(comparison);
   if (track.status === "rejected") {
     compareTrackMap.showMessage(`Could not load the track map: ${track.reason.message}`);
@@ -803,11 +1095,52 @@ if (nextLapBtn) {
     renderCurrentLap();
   });
 }
-// The lap outline has one sample per lap sample; the compare chart runs on the reference distance.
-for (const id of ["speedChart", "throttleChart", "brakeChart", "gearChart"]) {
+/**
+ * Where the pinned track map of a narrow layout lets go (styles.css): the height from the top of
+ * the last visible chart, less the gap above it, to the end of the chart column. Charts appear,
+ * disappear and change height with the window, so it is measured again on every resize.
+ */
+function updateMapRelease(layout) {
+  const column = layout.querySelector(":scope > .chart-grid, :scope > .chart-stack");
+  const charts = column ? Array.from(column.children).filter((el) => el.offsetHeight > 0) : [];
+  const last = charts[charts.length - 1];
+  if (!last) {
+    layout.style.removeProperty("--map-release");
+    return;
+  }
+  const gap = parseFloat(getComputedStyle(layout).rowGap) || 0;
+  const release = column.getBoundingClientRect().bottom - last.getBoundingClientRect().top + gap;
+  layout.style.setProperty("--map-release", `${Math.max(0, Math.round(release))}px`);
+}
+
+if (typeof ResizeObserver === "function") {
+  for (const layout of document.querySelectorAll(".map-layout")) {
+    // The chart column and its charts, not the layout: the release padding and margin change the
+    // layout's boxes but never these, so updating them cannot trigger the observer again.
+    const column = layout.querySelector(":scope > .chart-grid, :scope > .chart-stack");
+    if (!column) {
+      continue;
+    }
+    const observer = new ResizeObserver(() => updateMapRelease(layout));
+    for (const el of [column, ...column.children]) {
+      observer.observe(el, { box: "border-box" });
+    }
+  }
+}
+
+// The lap outline has one sample per lap sample; the compare charts run on the reference distance.
+for (const id of ["speedChart", "throttleChart", "brakeChart", "gearChart", "steeringChart", "accelChart", "rpmChart"]) {
   linkChartToMap(id, (i) => lapTrackMap.setCursorIndex(i));
 }
-linkChartToMap("compareSpeedChart", (i) => compareTrackMap.setCursorDistance(i >= 0 ? compareChartDistance[i] : NaN));
+// The speed overlay and the time delta share their distance points: hovering one also shows the other.
+linkChartToMap("compareSpeedChart", (i) => {
+  compareTrackMap.setCursorDistance(i >= 0 ? compareChartDistance[i] : NaN);
+  mirrorChartHover(compareDeltaChart, i);
+});
+linkChartToMap("compareDeltaChart", (i) => {
+  compareTrackMap.setCursorDistance(i >= 0 ? compareChartDistance[i] : NaN);
+  mirrorChartHover(compareSpeedChart, i);
+});
 
 loadSessions();
 updateLapToolbar();

@@ -7,9 +7,11 @@ import com.telemetry.analyzer.parser.CsvTelemetryParser;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AdaptedCsvProfilesTest {
@@ -68,6 +70,63 @@ class AdaptedCsvProfilesTest {
                 - session.laps().get(1).points().getFirst().timestamp(), 1e-9);
         // Non-numeric gear label is kept as neutral instead of dropping the row.
         assertEquals(0, session.laps().get(2).points().get(1).gear());
+        // Every lap owns its samples (lap 1 starts at 0 m and needs no rebasing): a subList view
+        // would keep the whole parsed file in memory for as long as the session is stored.
+        session.laps().forEach(lap -> assertEquals(ArrayList.class, lap.points().getClass(), lap.lapId()));
+    }
+
+    @Test
+    void bareLatLonHeadersAreGpsButAccelerationsAreNot() {
+        String csv = """
+                "Time","SPEED","THROTTLE","BRAKE","GEAR","G_LAT","G_LON","lon_acc","Lat","Lon"
+                "s","km/h","%","%","no","g","g","g","deg","deg"
+                "0.0","100","100","0","4","1.2","-0.5","-0.4","46.2530","20.1410"
+                "0.1","100","100","0","4","1.3","-0.6","-0.5","46.2531","20.1412"
+                """;
+
+        ImportReport report = new ImportReport("gps.csv");
+        SessionData session = AdaptedCsvProfiles.parseMoTeCWorkbook(csv, "gps.csv", report);
+
+        var p = session.laps().get(0).points().get(1);
+        assertEquals(46.2531, p.latitude(), 1e-9);
+        assertEquals(20.1412, p.longitude(), 1e-9);
+        assertEquals(1.3, p.lateralAcceleration(), 1e-9);
+        assertEquals(-0.6, p.longitudinalAcceleration(), 1e-9);
+    }
+
+    @Test
+    void accelerationColumnsAloneGiveNoGpsCoordinates() {
+        String csv = """
+                "Time","SPEED","THROTTLE","BRAKE","GEAR","G_LAT","G_LONG","lon_acc","long_acc"
+                "0.0","100","100","0","4","1.2","-0.5","-0.4","-0.3"
+                """;
+
+        SessionData session = AdaptedCsvProfiles.parseMoTeCWorkbook(csv, "acc.csv", new ImportReport("acc.csv"));
+
+        var p = session.laps().get(0).points().get(0);
+        assertNull(p.latitude());
+        assertNull(p.longitude());
+        assertEquals(-0.5, p.longitudinalAcceleration(), 1e-9);
+    }
+
+    @Test
+    void aimGpsAccelerationsBeforeTheCoordinatesAreNotTakenAsCoordinates() {
+        // AiM exports "GPS LatAcc" / "GPS LonAcc" before "GPS Latitude" / "GPS Longitude".
+        String csv = """
+                "Time","Distance","GPS Speed","GPS LatAcc","GPS LonAcc","GPS Latitude","GPS Longitude","Throttle","Brake","Gear"
+                "s","m","km/h","g","g","deg","deg","%","bar","#"
+                "0.00","0","120","1.20","-0.50","46.253000","20.141000","80","0","4"
+                "0.05","2","120","1.25","-0.40","46.253010","20.141010","80","0","4"
+                """;
+
+        ImportReport report = new ImportReport("aim.csv");
+        SessionData session = new CsvTelemetryParser().parse(csv.getBytes(StandardCharsets.UTF_8), "aim.csv", report);
+
+        var p = session.laps().get(0).points().get(1);
+        assertEquals(46.25301, p.latitude(), 1e-9);
+        assertEquals(20.14101, p.longitude(), 1e-9);
+        assertEquals(1.25, p.lateralAcceleration(), 1e-9);
+        assertEquals(-0.40, p.longitudinalAcceleration(), 1e-9);
     }
 
     @Test

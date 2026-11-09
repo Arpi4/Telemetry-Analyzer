@@ -5,12 +5,15 @@ import com.telemetry.analyzer.domain.SessionData;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
- * Session-level lap bookkeeping: which laps are complete, the fastest lap, sector times and the
- * theoretical best lap (sum of the best sector times driven in the session).
+ * Session-level lap bookkeeping: which laps are complete, the fastest lap, sector times, the
+ * theoretical best lap (sum of the best sector times driven in the session) and lap-time
+ * consistency.
  */
 public final class SessionLaps {
 
@@ -95,7 +98,89 @@ public final class SessionLaps {
     public record TheoreticalBest(double lapTime, double[] sectorTimes, String[] sectorLapIds) {
     }
 
-    private static double median(double[] values) {
+    /**
+     * The complete laps (with a lap time above 0) that are out-laps or in-laps, in session order,
+     * by the rule in {@link LapConsistency}: the laps the consistency figures leave out. Laps that
+     * follow each other in the session share the line crossing between them. Available whether
+     * or not enough flying laps remain for {@link #consistency}; empty with fewer than two such
+     * complete laps.
+     */
+    public static List<LapConsistency.ExcludedLap> excludedLaps(SessionData session) {
+        return excludedLaps(timedCompleteLaps(session));
+    }
+
+    /** A complete lap with a lap time above 0, and its position in the session's lap list. */
+    private record TimedLap(int sessionIndex, LapTrace trace) {
+    }
+
+    private static List<TimedLap> timedCompleteLaps(SessionData session) {
+        List<LapData> all = session.laps();
+        List<LapData> complete = completeLaps(session); // the same objects, in session order
+        List<TimedLap> out = new ArrayList<>();
+        for (int i = 0, j = 0; i < all.size() && j < complete.size(); i++) {
+            if (all.get(i) == complete.get(j)) {
+                j++;
+                LapTrace trace = LapTrace.of(all.get(i));
+                if (trace.lapTime() > 0) {
+                    out.add(new TimedLap(i, trace));
+                }
+            }
+        }
+        return out;
+    }
+
+    private static List<LapConsistency.ExcludedLap> excludedLaps(List<TimedLap> laps) {
+        int n = laps.size();
+        String[] ids = new String[n];
+        double[] entrySpeeds = new double[n];
+        double[] exitSpeeds = new double[n];
+        boolean[] startsAtPreviousEnd = new boolean[n];
+        for (int i = 0; i < n; i++) {
+            LapTrace trace = laps.get(i).trace();
+            ids[i] = trace.lapId();
+            entrySpeeds[i] = trace.speed()[0];
+            exitSpeeds[i] = trace.speed()[trace.size() - 1];
+            // the next lap of the session starts at the crossing that ends this one
+            startsAtPreviousEnd[i] = i > 0 && laps.get(i).sessionIndex() == laps.get(i - 1).sessionIndex() + 1;
+        }
+        return LapConsistency.outAndInLaps(ids, entrySpeeds, exitSpeeds, startsAtPreviousEnd);
+    }
+
+    /**
+     * Lap-time consistency over the flying laps: the complete laps without out-laps and in-laps
+     * (rule and formulas in {@link LapConsistency}, which also lists the laps left out, as
+     * {@link #excludedLaps} does); sector times use the same split as {@link #sectorTimes}.
+     * Empty with fewer than two flying laps.
+     */
+    public static Optional<LapConsistency> consistency(SessionData session, int sectors) {
+        List<TimedLap> complete = timedCompleteLaps(session);
+        if (complete.size() < 2) {
+            return Optional.empty();
+        }
+        List<LapConsistency.ExcludedLap> excluded = excludedLaps(complete);
+        Set<String> excludedIds = new HashSet<>();
+        excluded.forEach(e -> excludedIds.add(e.lapId()));
+        List<LapTrace> flying = complete.stream()
+                .map(TimedLap::trace)
+                .filter(t -> !excludedIds.contains(t.lapId()))
+                .toList();
+        int n = flying.size();
+        if (n < 2) {
+            return Optional.empty();
+        }
+        String[] ids = new String[n];
+        double[] times = new double[n];
+        double[][] sectorTimes = new double[n][];
+        for (int i = 0; i < n; i++) {
+            LapTrace trace = flying.get(i);
+            ids[i] = trace.lapId();
+            times[i] = trace.lapTime();
+            sectorTimes[i] = sectorTimes(trace, sectors);
+        }
+        return Optional.of(LapConsistency.of(ids, times, sectorTimes, excluded));
+    }
+
+    static double median(double[] values) {
         double[] sorted = values.clone();
         Arrays.sort(sorted);
         int n = sorted.length;

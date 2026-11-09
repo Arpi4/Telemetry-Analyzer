@@ -11,6 +11,7 @@ import com.telemetry.analyzer.service.SegmentCompareService;
 import com.telemetry.analyzer.service.SessionStore;
 import com.telemetry.analyzer.service.TelemetryImportService;
 import com.telemetry.analyzer.parser.TelemetryParser;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -19,9 +20,13 @@ import java.util.List;
 @Configuration
 public class AnalyzerConfiguration {
 
+    /**
+     * In-memory session store with a sample budget (telemetry.store.max-samples, 0 = unbounded),
+     * so repeated uploads evict the oldest sessions instead of running the heap out.
+     */
     @Bean
-    public SessionStore sessionStore() {
-        return new SessionStore();
+    public SessionStore sessionStore(@Value("${telemetry.store.max-samples:0}") long maxSamples) {
+        return maxSamples > 0 ? new SessionStore(maxSamples) : new SessionStore();
     }
 
     @Bean

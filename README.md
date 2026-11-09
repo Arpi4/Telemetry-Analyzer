@@ -12,8 +12,9 @@ Public URL: https://telemetry-analyzer.vercel.app/web/index.html
 ## Features
 
 - Import telemetry from generic CSV, MoTeC i2 CSV exports (e.g. from Assetto Corsa Competizione), OpenF1 lap exports and LDX
-- Automatic lap splitting from beacon markers; complete-lap detection, fastest and theoretical best lap
-- Channel charts over lap distance (speed, throttle, brake, gear)
+- Unit detection for acceleration and steering channels (g vs m/s², degrees vs radians); longitudinal g derived from speed when the logged channel only holds whole g
+- Automatic lap splitting from beacon markers; complete-lap detection, fastest and theoretical best lap; lap-time consistency over flying laps (out-laps and in-laps excluded automatically)
+- Channel charts (speed, throttle, brake, gear, plus steering angle, lateral/longitudinal g and engine rpm when logged)
 - Distance-aligned lap comparison: speed/pedal overlays, cumulative delta time, exact sector deltas, braking point differences
 - Driving pattern detection: braking zones, corner apexes, time-weighted pedal metrics
 - Track map from GPS or reconstructed from yaw rate (dead reckoning with loop closure), coloured by speed with braking points, or by time gained/lost with sector markers in lap comparison – the same map in both clients

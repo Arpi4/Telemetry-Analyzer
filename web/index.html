@@ -15,7 +15,7 @@
       <div class="hero-stripes" aria-hidden="true"></div>
       <div class="hero-inner">
         <div class="hero-text">
-          <p class="hero-badge">Live telemetry</p>
+          <p class="hero-badge">Log file analysis</p>
           <h1 class="hero-title">Telemetry Analyzer</h1>
           <p class="hero-tagline">CSV · MoTeC · OpenF1 · lap compare</p>
         </div>
@@ -57,12 +57,16 @@
 
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Lap charts</h2>
-        <p class="panel-help">Each channel is shown on a separate chart, next to a map of the driven line. To keep the view clean, only one lap is displayed at a time.</p>
+        <p class="panel-help">Each channel is shown on a separate chart, next to a map of the driven line. To keep the view clean, only one lap is displayed at a time. Steering, g-force and engine speed charts appear when the file has those channels.</p>
         <div class="lap-toolbar">
           <button type="button" class="btn btn-ghost" id="prevLapBtn">Previous lap</button>
           <select id="lapSelect" class="select"></select>
           <button type="button" class="btn btn-ghost" id="nextLapBtn">Next lap</button>
           <span id="lapTimeInfo" class="lap-time-info">Lap time: -</span>
+        </div>
+        <div id="lapSummary" class="lap-summary" hidden>
+          <div id="lapSummaryTiles" class="summary-tiles"></div>
+          <p id="lapSummaryHelp" class="chart-help"></p>
         </div>
         <div class="map-layout">
           <div class="chart-grid chart-grid-single">
@@ -82,6 +86,18 @@
               <p class="chart-help"><strong>Gear:</strong> shows the selected gear over the lap. It helps you see shift timing and whether gear choice is consistent corner by corner.</p>
               <canvas id="gearChart"></canvas>
             </div>
+            <div class="chart-wrap" hidden>
+              <p class="chart-help"><strong>Steering angle:</strong> steering wheel angle in degrees; the sign gives the direction. Smooth, single inputs per corner are good; saw-tooth corrections show the car sliding or the line being adjusted.</p>
+              <canvas id="steeringChart"></canvas>
+            </div>
+            <div class="chart-wrap" hidden>
+              <p class="chart-help"><strong>G-forces:</strong> acceleration in g. Lateral g peaks mid-corner, and its sign gives the direction of the corner; longitudinal g is negative under braking and positive under acceleration. When a file logs longitudinal g in whole g only, it is derived from the speed trace instead (see the import report).</p>
+              <canvas id="accelChart"></canvas>
+            </div>
+            <div class="chart-wrap" hidden>
+              <p class="chart-help"><strong>Engine speed:</strong> engine RPM (1/min). Each drop is an upshift and each jump a downshift; a flat top before a shift means the engine sat on the limiter.</p>
+              <canvas id="rpmChart"></canvas>
+            </div>
           </div>
           <aside class="chart-wrap track-wrap">
             <p class="chart-help"><strong>Track map:</strong> the driven line coloured by speed, from blue (slow) to red (fast). B1, B2, … mark where each braking zone starts, the white dot is start/finish. Hover or tap a chart to follow the car.</p>
@@ -92,7 +108,7 @@
 
       <section class="panel">
         <h2 class="panel-title"><span class="panel-accent"></span> Lap comparison</h2>
-        <p class="panel-help">Compare selected laps between two uploaded sessions. Complete laps are listed fastest first (★ marks the fastest); laps much shorter or longer than the session's usual lap are marked (partial). The summary shows the lap-level difference, and the chart overlays both speed traces along the reference lap.</p>
+        <p class="panel-help">Compare selected laps between two uploaded sessions. Complete laps are listed fastest first (★ marks the fastest); laps much shorter or longer than the session's usual lap are marked (partial). The summary shows the lap-level difference; the charts overlay both speed traces and plot the running time difference along the reference lap.</p>
         <div class="compare-grid">
           <label class="field">
             <span class="field-label">Reference session</span>
@@ -117,12 +133,22 @@
           <button type="button" class="btn btn-primary" id="runCompare">Compare laps</button>
         </div>
         <div class="map-layout" style="margin-top: 0.9rem">
-          <div class="chart-wrap chart-wrap-wide">
-            <p class="chart-help"><strong>Speed overlay:</strong> both laps over the reference lap distance. Red = reference, cyan = compare.</p>
-            <canvas id="compareSpeedChart"></canvas>
+          <div class="chart-stack">
+            <div class="chart-wrap chart-wrap-wide">
+              <p class="chart-help"><strong>Speed overlay:</strong> both laps over the reference lap distance. Red = reference, cyan = compare.</p>
+              <div class="chart-box chart-box-ratio">
+                <canvas id="compareSpeedChart"></canvas>
+              </div>
+            </div>
+            <div class="chart-wrap">
+              <p class="chart-help"><strong>Time delta:</strong> Δt = compare minus reference time to reach each point of the reference lap. Above zero (red) the compare lap is behind, below zero (green) it is ahead; where the line rises the compare lap loses time, where it falls it gains. It ends at the lap time difference.</p>
+              <div class="chart-box">
+                <canvas id="compareDeltaChart"></canvas>
+              </div>
+            </div>
           </div>
           <aside class="chart-wrap track-wrap">
-            <p class="chart-help"><strong>Time delta map:</strong> the reference lap's line, green where the compare lap gains time and red where it loses. S2, S3, … mark the sector starts, coloured by that sector's delta. Hover or tap the speed overlay to follow the car.</p>
+            <p class="chart-help"><strong>Time delta map:</strong> the reference lap's line, green where the compare lap gains time and red where it loses. S2, S3, … mark the sector starts, coloured by that sector's delta. Hover or tap the speed or time delta chart to follow the car.</p>
             <div id="compareTrackMap"></div>
             <div id="compareSectors" class="sector-strip" hidden></div>
           </aside>

@@ -95,9 +95,15 @@ public final class AdaptedCsvProfiles {
         int idxYaw = -1;
         int idxGpsLat = -1;
         int idxGpsLon = -1;
+        int idxLatAcc = -1;
+        int idxLonAcc = -1;
+        int idxSteer = -1;
+        int idxRpm = -1;
+        List<String> columnUnits = null;
         int minCells = -1;
 
         List<TelemetryPoint> points = new ArrayList<>();
+        DoublePool pool = new DoublePool();
         int skipped = 0;
         boolean truncated = false;
         char delimiter = ',';
@@ -132,6 +138,10 @@ public final class AdaptedCsvProfiles {
                     idxYaw = columnIndex(headerMap, TelemetryChannelResolver.findYawRate(headerMap));
                     idxGpsLat = findGpsLatitudeColumnIndex(columnNames);
                     idxGpsLon = findGpsLongitudeColumnIndex(columnNames);
+                    idxLatAcc = columnIndex(headerMap, TelemetryChannelResolver.findLateralAcceleration(headerMap));
+                    idxLonAcc = columnIndex(headerMap, TelemetryChannelResolver.findLongitudinalAcceleration(headerMap));
+                    idxSteer = columnIndex(headerMap, TelemetryChannelResolver.findSteeringAngle(headerMap));
+                    idxRpm = columnIndex(headerMap, TelemetryChannelResolver.findEngineRpm(headerMap));
                     if (idxSpeed < 0 || idxThrottle < 0 || idxBrake < 0 || idxGear < 0) {
                         report.addError("MoTeC CSV: missing Speed / Throttle / Brake / Gear columns.");
                         return emptySession(sourceFile);
@@ -142,6 +152,9 @@ public final class AdaptedCsvProfiles {
                 }
 
                 if (isMotecUnitRow(rawLine, delimiter)) {
+                    if (columnUnits == null) {
+                        columnUnits = trimAll(Rfc4180CsvLineSplitter.split(rawLine, delimiter));
+                    }
                     continue;
                 }
                 if (points.size() >= MAX_MOTEC_POINTS_STORED) {
@@ -168,7 +181,11 @@ public final class AdaptedCsvProfiles {
                     Double lon = parseGeoLon(cells, idxGpsLon);
                     Double dist = idxDist >= 0 ? parseOptionalDoubleCell(cells, idxDist) : null;
                     Double yaw = idxYaw >= 0 ? parseOptionalDoubleCell(cells, idxYaw) : null;
-                    points.add(new TelemetryPoint(t, speed, throttle, brake, gear, lat, lon, dist, yaw));
+                    points.add(new TelemetryPoint(t, speed, throttle, brake, gear, lat, lon, dist, yaw,
+                            pool.share(parseOptionalDoubleCell(cells, idxLatAcc)),
+                            pool.share(parseOptionalDoubleCell(cells, idxLonAcc)),
+                            pool.share(parseOptionalDoubleCell(cells, idxSteer)),
+                            pool.share(parseOptionalDoubleCell(cells, idxRpm))));
                 } catch (Exception ex) {
                     skipped++;
                 }
@@ -191,6 +208,9 @@ public final class AdaptedCsvProfiles {
             report.addWarning("MoTeC CSV: skipped " + skipped + " rows.");
         }
         report.addWarning("Parsed channel-row CSV (MoTeC workbook or compatible).");
+        ChannelUnits.normalizeChannels(points, column(columnNames, columnUnits, idxLatAcc),
+                column(columnNames, columnUnits, idxLonAcc), column(columnNames, columnUnits, idxSteer),
+                columnNames.get(idxSpeed), "MoTeC CSV", report);
         List<LapData> laps = splitPointsIntoLapsByBeaconMarkers(points, beaconMarkersSeconds);
         if (laps.size() > 1) {
             report.addWarning("Detected " + laps.size() + " laps using MoTeC beacon markers.");
@@ -243,7 +263,8 @@ public final class AdaptedCsvProfiles {
 
     /**
      * MoTeC exports the Distance channel cumulatively over the whole outing; analysis needs
-     * distance from the start of each lap, otherwise laps 2..n cannot be overlaid.
+     * distance from the start of each lap, otherwise laps 2..n cannot be overlaid. Always returns a
+     * new list: a {@code subList} view kept by a lap would keep every parsed sample of the file alive.
      */
     static List<TelemetryPoint> rebaseDistance(List<TelemetryPoint> lapPoints) {
         Double origin = null;
@@ -254,7 +275,7 @@ public final class AdaptedCsvProfiles {
             }
         }
         if (origin == null || origin == 0.0) {
-            return lapPoints;
+            return new ArrayList<>(lapPoints);
         }
         List<TelemetryPoint> out = new ArrayList<>(lapPoints.size());
         for (TelemetryPoint p : lapPoints) {
@@ -543,40 +564,49 @@ public final class AdaptedCsvProfiles {
     }
 
     /**
-     * MoTeC "G_LAT" / "G_LON" are accelerations, not geographic coordinates — skip those names.
+     * Optional channel column; its unit is the cell in the MoTeC unit row, else a "(unit)" suffix
+     * of its header.
      */
-    private static int findGpsLatitudeColumnIndex(List<String> names) {
-        for (int i = 0; i < names.size(); i++) {
-            String n = names.get(i).toLowerCase(Locale.ROOT);
-            if ("g_lat".equals(n)) {
-                continue;
-            }
-            if (n.contains("gps") && (n.contains("lat") || n.contains("latitude"))) {
-                return i;
-            }
-            if (("latitude".equals(n) || "lat".equals(n)) && !n.contains("g_") && !n.contains("gyro")) {
-                return i;
-            }
-            if (n.contains("nav") && n.contains("lat")) {
-                return i;
+    private static ChannelUnits.Column column(List<String> columnNames, List<String> columnUnits, int ix) {
+        if (ix < 0) {
+            return ChannelUnits.Column.ABSENT;
+        }
+        String name = columnNames.get(ix);
+        if (columnUnits != null && ix < columnUnits.size()) {
+            String unit = columnUnits.get(ix).replace("\"", "").trim();
+            if (!unit.isEmpty() && !"..".equals(unit)) {
+                return new ChannelUnits.Column(name, unit);
             }
         }
-        return -1;
+        return new ChannelUnits.Column(name, TelemetryChannelResolver.unitSuffix(name));
+    }
+
+    private static int findGpsLatitudeColumnIndex(List<String> names) {
+        return findCoordinateColumnIndex(names,
+                List.of("lat", "latitude", "gps_lat", "gps_latitude", "nav_lat", "nav_latitude"), "lat");
     }
 
     private static int findGpsLongitudeColumnIndex(List<String> names) {
+        return findCoordinateColumnIndex(names,
+                List.of("lon", "long", "longitude", "gps_lon", "gps_long", "gps_longitude",
+                        "nav_lon", "nav_long", "nav_longitude"), "lon");
+    }
+
+    /**
+     * Coordinate column: a whole name such as "Latitude" or "GPS_Lat" first, else the first GPS / nav
+     * channel containing {@code fragment}. Accelerations and accuracies (MoTeC "G_LAT", AiM
+     * "GPS LatAcc", "GPS Lateral G", "lat_accuracy") are never taken.
+     */
+    private static int findCoordinateColumnIndex(List<String> names, List<String> wholeNames, String fragment) {
         for (int i = 0; i < names.size(); i++) {
-            String n = names.get(i).toLowerCase(Locale.ROOT);
-            if ("g_lon".equals(n) || "g_long".equals(n)) {
-                continue;
-            }
-            if (n.contains("gps") && (n.contains("lon") || n.contains("long"))) {
+            if (wholeNames.contains(TelemetryChannelResolver.normalizeName(names.get(i)))) {
                 return i;
             }
-            if ("longitude".equals(n) || "long".equals(n)) {
-                return i;
-            }
-            if (n.contains("nav") && (n.contains("lon") || n.contains("long"))) {
+        }
+        for (int i = 0; i < names.size(); i++) {
+            String n = TelemetryChannelResolver.normalizeName(names.get(i));
+            if ((n.contains("gps") || n.contains("nav")) && n.contains(fragment)
+                    && !TelemetryChannelResolver.isAccelerationOrAccuracy(n)) {
                 return i;
             }
         }

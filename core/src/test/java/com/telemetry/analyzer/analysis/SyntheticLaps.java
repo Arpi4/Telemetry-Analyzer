@@ -58,4 +58,14 @@ final class SyntheticLaps {
     static Profile speed(DoubleUnaryOperator kmhOfDistance) {
         return d -> new Sample(kmhOfDistance.applyAsDouble(d), 100, 0, 4);
     }
+
+    /** Out-lap: {@code pitKmh} until {@code pitExitM}, then {@code kmh}. */
+    static Profile pitExit(double pitKmh, double pitExitM, double kmh) {
+        return speed(d -> d < pitExitM ? pitKmh : kmh);
+    }
+
+    /** In-lap: {@code kmh} until {@code pitEntryM}, then {@code pitKmh} to the end of the lap. */
+    static Profile pitEntry(double kmh, double pitEntryM, double pitKmh) {
+        return speed(d -> d < pitEntryM ? kmh : pitKmh);
+    }
 }

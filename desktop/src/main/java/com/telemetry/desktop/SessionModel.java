@@ -27,8 +27,8 @@ import java.util.Optional;
  */
 final class SessionModel {
 
-    record LapAnalysis(SessionData session, LapData lap, LapTrace trace, DrivingEvents events,
-                       TrackOutline outline, boolean complete, boolean fastest) {
+    record LapAnalysis(SessionData session, LapData lap, LapTrace trace, ExtraChannels channels,
+                       DrivingEvents events, TrackOutline outline, boolean complete, boolean fastest) {
     }
 
     private final AnalyzerServices services = new AnalyzerServices();
@@ -80,7 +80,8 @@ final class SessionModel {
             TrackOutline outline = services.trackReconstructor().reconstruct(l, trace);
             boolean complete = completeLaps(session).contains(l);
             boolean isFastest = fastestLap(session).map(f -> f == l).orElse(false);
-            return new LapAnalysis(session, l, trace, events, outline, complete, isFastest);
+            return new LapAnalysis(session, l, trace, ExtraChannels.of(l, trace), events, outline, complete,
+                    isFastest);
         });
     }
 

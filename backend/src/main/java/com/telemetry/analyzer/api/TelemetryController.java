@@ -182,7 +182,11 @@ public class TelemetryController {
     }
 
     /**
-     * Complete laps, fastest lap and theoretical best lap of a session.
+     * Complete laps, fastest lap, theoretical best lap and lap-time consistency of a session. The
+     * consistency figures cover the flying laps only; out-laps and in-laps are listed in
+     * {@code consistency.excludedLaps} with their reason. {@code consistency} is null with fewer
+     * than two flying laps; the top-level {@code excludedLaps} lists the same laps and is always
+     * present (an empty array when no lap is left out), so the reason is also known then.
      */
     @GetMapping("/sessions/{sessionId}/overview")
     public ResponseEntity<?> sessionOverview(@PathVariable String sessionId,
@@ -205,6 +209,8 @@ public class TelemetryController {
         body.put("laps", laps);
         body.put("fastestLapId", SessionLaps.fastestLap(session).map(LapData::lapId).orElse(null));
         body.put("theoreticalBest", SessionLaps.theoreticalBest(session, sectors).orElse(null));
+        body.put("consistency", SessionLaps.consistency(session, sectors).orElse(null));
+        body.put("excludedLaps", SessionLaps.excludedLaps(session));
         return ResponseEntity.ok(body);
     }
 

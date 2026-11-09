@@ -1,7 +1,8 @@
 /*
  * Visual identity shared with web/styles.css: dark motorsport UI, racing header, uppercase
- * section titles with a red accent bar, card panels. Chart colours: red = reference lap,
- * cyan = compare lap, amber = time delta.
+ * section titles with a red accent bar, card panels. Chart colours: red = reference lap (and
+ * the first series of a single-lap chart), cyan = compare lap (and the second series),
+ * amber = time delta.
  *
  * Sizes are in em where possible, so the whole UI scales with the root font size (the
  * screenshot mode renders with a larger one).
@@ -233,6 +234,72 @@
   -fx-font-size: 0.85em;
 }
 
+/* compact menu button in a card header (extra chart channels) */
+.menu-button.channel-menu {
+  -fx-background-color: rgba(255, 255, 255, 0.05);
+  -fx-background-insets: 0;
+  -fx-background-radius: 6;
+  -fx-border-color: -border;
+  -fx-border-radius: 6;
+  -fx-padding: 0;
+  -fx-cursor: hand;
+}
+
+.menu-button.channel-menu:hover {
+  -fx-background-color: rgba(255, 255, 255, 0.1);
+  -fx-border-color: rgba(255, 255, 255, 0.22);
+}
+
+.menu-button.channel-menu:showing,
+.menu-button.channel-menu:focus-visible {
+  -fx-border-color: -accent;
+}
+
+.menu-button.channel-menu > .label {
+  -fx-text-fill: -text-soft;
+  -fx-font-family: "Segoe UI Semibold";
+  -fx-font-size: 0.92em;
+  -fx-padding: 0.25em 0.2em 0.25em 0.75em;
+}
+
+.menu-button.channel-menu > .arrow-button {
+  -fx-background-color: transparent;
+  -fx-padding: 0 0.7em 0 0.35em;
+}
+
+.menu-button.channel-menu > .arrow-button > .arrow {
+  -fx-background-color: -muted;
+}
+
+.context-menu {
+  -fx-background-color: -border-strong, -bg-panel;
+  -fx-background-insets: 0, 1;
+  -fx-background-radius: 6;
+  -fx-padding: 4 1 4 1;
+  -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.6), 18, 0, 0, 6);
+}
+
+.menu-item {
+  -fx-background-color: transparent;
+  -fx-padding: 0.4em 1em 0.4em 0.7em;
+}
+
+.menu-item > .label {
+  -fx-text-fill: -text-soft;
+}
+
+.menu-item:focused {
+  -fx-background-color: -selection;
+}
+
+.menu-item:focused > .label {
+  -fx-text-fill: white;
+}
+
+.check-menu-item:checked > .left-container > .check {
+  -fx-background-color: -accent;
+}
+
 /* ---------- Cards, titles, tiles ---------- */
 
 .view {
@@ -354,6 +421,29 @@
   -fx-background-color: -cmp;
 }
 
+/* series of a single-lap chart, in the default-color0 / default-color1 line colours */
+.legend-dot.dot-series0 {
+  -fx-background-color: -ref;
+}
+
+.legend-dot.dot-series1 {
+  -fx-background-color: -cmp;
+}
+
+/* legend in a strip above the plot of a .legend-strip chart, right-aligned with the plot */
+.chart-legend {
+  -fx-padding: 0;
+}
+
+.chart-legend .legend {
+  -fx-font-size: 0.85em;
+}
+
+/* the strip: one legend line (0.85em text) above the plot */
+.telemetry-chart.legend-strip > .chart-content {
+  -fx-padding: 1.3em 6 2 0;
+}
+
 .compare-status {
   -fx-font-size: 0.88em;
 }
@@ -458,6 +548,15 @@
 .summary-value {
   -fx-text-fill: -text;
   -fx-font-family: Consolas;
+}
+
+/* heading of a group of summary rows (lap-time consistency), as the tile captions */
+.summary .label.summary-caption {
+  -fx-text-fill: -muted;
+  -fx-font-family: "Segoe UI Semibold";
+  -fx-font-size: 0.78em;
+  -fx-border-color: rgba(255, 255, 255, 0.08) transparent transparent transparent;
+  -fx-padding: 5 0 1 0;
 }
 
 .placeholder-text {
@@ -768,6 +867,12 @@
   -fx-pref-width: 5em;
 }
 
+/* distance axis pinned below a scrolling chart stack: indented by the y axis width (5em) and the
+   chart's right padding (.chart 4 + .chart-content 6), so it spans the plots */
+.pinned-axis {
+  -fx-padding: 0 10 0 5em;
+}
+
 .axis-tick-mark,
 .axis-minor-tick-mark {
   -fx-stroke: rgba(255, 255, 255, 0.14);
@@ -818,6 +923,12 @@
 .readout.idle {
   -fx-text-fill: -dim;
   -fx-font-family: "Segoe UI";
+}
+
+/* room for two Consolas lines (2 x ~1.17 em), also while the one-line hint is shown */
+.readout.two-lines {
+  -fx-min-height: 2.5em;
+  -fx-pref-height: 2.5em;
 }
 
 /* ---------- Track map ---------- */
